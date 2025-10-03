@@ -1,0 +1,44 @@
+# Ignorar PyCharm
+.idea/
+
+# Archivos de compilación de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entorno virtual
+venv/
+
+# Archivos de logs
+*.log
+
+# Archivos temporales
+*.tmp
+*.swp
+*.bak
+*.old
+
+# Configuración local de editores
+*.vscode/
+
+# Pruebas y cobertura
+htmlcov/
+*.cover
+.coverage
+*.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+
+# Bases de datos y archivos grandes
+*.sqlite3
+*.csv
+
+# Variables de entorno
+.env
+
+# Carpeta de descargas FTP
+Downloads/
+FTP/Downloads/
+FTP/Server/Auth/credentials.enc
+FTP/Server/Auth/secret.key
