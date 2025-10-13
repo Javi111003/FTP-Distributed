@@ -2,6 +2,7 @@ import socket
 import re
 import argparse
 import logging
+import time
 from typing import Optional, Dict, Callable
 from FTP.Common.constants import FTPResponseCode, TransferMode, DEFAULT_BUFFER_SIZE, DEFAULT_TIMEOUT
 from FTP.Common.exceptions import FTPClientError, FTPTransferError, FTPAuthError, FTPConnectionError
@@ -346,8 +347,13 @@ class FTPClient:
     def _get_response(self) -> str:
         """Lee la respuesta del servidor."""
         response = []
+        start = time.time()
         while True:
-            chunk = self.control_sock.recv(DEFAULT_BUFFER_SIZE).decode(errors="ignore")
+            try:
+                chunk = self.control_sock.recv(DEFAULT_BUFFER_SIZE).decode(errors="ignore")
+            except socket.timeout:
+                elapsed = time.time() - start
+                raise TimeoutError(f"recv() agotó el tiempo tras {elapsed:.2f}s; acumulado: {''.join(chunk)!r}")
             if not chunk:
                 break
             response.append(chunk)

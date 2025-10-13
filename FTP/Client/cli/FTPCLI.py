@@ -686,7 +686,7 @@ class FTPCLI(cmd.Cmd):
 
 if __name__ == "__main__":
     try:
-        client = FTPClient('10.10.10.6', 21)
+        client = FTPClient('localhost', 21)
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}")
