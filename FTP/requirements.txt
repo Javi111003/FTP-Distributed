@@ -1,0 +1,13 @@
+# Dependencias del proyecto FTP-Distributed
+
+# Criptografía para el manejo seguro de credenciales
+cryptography>=41.0.0
+
+# Hash de contraseñas
+passlib>=1.7.4
+
+# Librería Rich para interfaces de consola mejoradas
+rich>=13.0.0
+
+# Opcional: python-dotenv para cargar variables de entorno desde .env
+python-dotenv>=1.0.0
