@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  ftpserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "21:21"
+      - "30000-30009:30000-30009"
+    environment:
+      PUBLICHOST: "0.0.0.0"  # Puedes cambiarlo por la IP del host si lo usas en modo pasivo
+    volumes:
+      - ./FTP/FTPRoot:/app/FTP/FTPRoot  # Directorio raíz del servidor FTP
+      - ./FTP/Server/Auth:/app/FTP/Server/Auth  # Archivos de autenticación
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+    networks:
+      - ftpnet
+
+networks:
+  ftpnet:
+    driver: overlay
