@@ -1,6 +1,7 @@
 from FTP.Server.Commands.base_command import Command
 import socket
 import random
+import os
 
 class PasvCommand(Command):
     def execute(self, server, client_socket, args):
@@ -10,7 +11,16 @@ class PasvCommand(Command):
             server.passive_server.bind((server.host, passive_port))
             server.passive_server.listen(1)
             
-            host_parts = socket.gethostbyname(socket.gethostname()).split('.') #Cambiar a host de windows (public ip)
+             # Usar IP pública configurada o variable de entorno
+            public_ip = server.public_ip
+            if not public_ip or public_ip == '0.0.0.0':
+                # Intentar obtener de variable de entorno
+                public_ip = os.getenv('PUBLIC_IP')
+                if not public_ip:
+                    # Fallback a IP local del contenedor
+                    public_ip = socket.gethostbyname(socket.gethostname())
+            
+            host_parts = public_ip.split('.')
             port_high = passive_port >> 8
             port_low = passive_port & 0xFF
             

@@ -17,5 +17,5 @@ RUN touch /app/FTP/__init__.py && touch /app/FTP/Server/__init__.py
 EXPOSE 21
 EXPOSE 30000-30009
 
-# Ejecuta el servidor como módulo
-CMD ["python", "-u", "-m", "FTP.Server.server"]
+# Ejecuta el servidor como módulo con argumentos dinámicos
+CMD ["python", "-u", "-m", "FTP.Server.server", "--public-ip", "10.40.68.195"]

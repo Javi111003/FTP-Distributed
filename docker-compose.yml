@@ -49,9 +49,10 @@ services:
         protocol: tcp
         mode: host
     environment:
-      PUBLICHOST: "0.0.0.0"
+      PUBLIC_IP: "${PUBLIC_IP}"
       USERNAME: "admin"
       PASSWORD: "admin123"
+    command: ["python", "-u", "-m", "FTP.Server.server", "--public-ip", "${PUBLIC_IP}"]
     volumes:
       - type: bind
         source: ./FTP/FTPRoot

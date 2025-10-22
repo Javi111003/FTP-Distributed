@@ -1,4 +1,5 @@
 import socket
+import argparse
 from pathlib import Path
 from typing import Dict, Optional
 from FTP.Server.Commands.auth import UserCommand, PassCommand
@@ -18,9 +19,10 @@ from FTP.Server.Auth.CredentialsManager import CredentialsManager
 from FTP.Server.Commands.site_commands import SiteCommand
 
 class FTPServer:
-    def __init__(self, host='0.0.0.0', port=21, base_dir=None):
+    def __init__(self, host='0.0.0.0', port=21, base_dir=None, public_ip=None):
         self.host = host
         self.port = port
+        self.public_ip = public_ip or host # Ip pública para PASV
         # Usar el directorio especificado o crear uno por defecto
         if base_dir is None:
             self.base_dir = Path(__file__).parent.parent / 'FTPRoot'
@@ -200,7 +202,24 @@ class FTPServer:
             return False
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Servidor FTP")
+    parser.add_argument("--host", default="0.0.0.0", help="Host del servidor")
+    parser.add_argument("--port", type=int, default=21, help="Puerto del servidor")
+    parser.add_argument("--public-ip", help="IP pública para modo PASV")
+    parser.add_argument("--base-dir", help="Directorio base del servidor")
+    
+    args = parser.parse_args()
+    
     # Directorio base por defecto en la carpeta FTPRoot
     default_base_dir = Path(__file__).parent.parent / 'FTPRoot'
-    server = FTPServer(base_dir=default_base_dir)
+    base_dir = args.base_dir or default_base_dir
+    
+    server = FTPServer(
+        host=args.host,
+        port=args.port,
+        base_dir=base_dir,
+        public_ip=args.public_ip
+    )
     server.start()
