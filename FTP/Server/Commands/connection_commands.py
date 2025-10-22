@@ -6,11 +6,11 @@ class PasvCommand(Command):
     def execute(self, server, client_socket, args):
         try:
             server.passive_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            passive_port = random.randint(1024, 65535)
+            passive_port = random.randint(30000, 30009)
             server.passive_server.bind((server.host, passive_port))
             server.passive_server.listen(1)
             
-            host_parts = socket.gethostbyname(socket.gethostname()).split('.')
+            host_parts = socket.gethostbyname(socket.gethostname()).split('.') #Cambiar a host de windows (public ip)
             port_high = passive_port >> 8
             port_low = passive_port & 0xFF
             

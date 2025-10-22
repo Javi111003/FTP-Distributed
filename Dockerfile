@@ -18,4 +18,4 @@ EXPOSE 21
 EXPOSE 30000-30009
 
 # Ejecuta el servidor como módulo
-CMD ["python", "-m", "FTP.Server.server"]
+CMD ["python", "-u", "-m", "FTP.Server.server"]

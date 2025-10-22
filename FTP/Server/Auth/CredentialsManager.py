@@ -55,8 +55,7 @@ class CredentialsManager:
         initial_password = os.getenv("PASSWORD")
 
         if not initial_user or not initial_password:
-            raise ValueError("El archivo de configuración debe contener 'initial_user' y 'initial_password'")
-
+            raise ValueError("Las variables de entorno 'USERNAME' y 'PASSWORD' deben estar definidas")
         # Crear el usuario inicial
         hashed_password = bcrypt.hash(initial_password)
         self.credentials[initial_user] = hashed_password
