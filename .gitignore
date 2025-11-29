@@ -17,6 +17,8 @@ venv/
 *.swp
 *.bak
 *.old
+*.aux
+
 
 # Configuración local de editores
 *.vscode/
@@ -37,8 +39,16 @@ coverage.xml
 # Variables de entorno
 .env
 
+# Latex build files
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.out
+
 # Carpeta de descargas FTP
 Downloads/
 FTP/Downloads/
 FTP/Server/Auth/credentials.enc
 FTP/Server/Auth/secret.key
+report/img/

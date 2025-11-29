@@ -1,0 +1,607 @@
+\documentclass{article}
+\usepackage[spanish]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{pdfpages}
+\usepackage{pdflscape}
+\usepackage{svg}
+\usepackage{fontawesome5}
+\usepackage{subcaption}
+\usepackage{bookmark}
+
+\geometry{margin=1in}
+
+
+\title{\huge{Informe Final del Proyecto \\ \Large{Diseño e Implementación de un Sistema Distribuido \\ para Transferencia de Archivos FTP}}
+
+\includegraphics[width=0.8\textwidth]{img/FTPD.png}
+\vspace{1cm}
+\begin{center}
+\includegraphics[width=0.10\textwidth]{img/matcom.jpg}
+\end{center}
+}
+\author{\large{Facultad de Matemática y Computación} \\ \small{Universidad de La Habana}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+
+\newpage
+
+\begin{abstract}
+    El presente informe describe el diseño e implementación de un sistema distribuido para la gestión de transferencia de archivos mediante el protocolo FTP, 
+    desarrollado como proyecto final de la asignatura Sistemas Distribuidos. El objetivo principal es transformar un servidor FTP centralizado, previamente funcional y compatible con la especificación RFC 959, 
+    en un sistema distribuido capaz de operar sobre una infraestructura basada en Docker Swarm y ejecutarse en dos máquinas físicas, garantizando tolerancia a fallos, disponibilidad y replicación de datos.
+El sistema propuesto adopta una arquitectura de clúster compuesta por tres tipos de nodos con roles claramente diferenciados: nodos \emph{Router}, encargados de atender las sesiones FTP de los clientes; nodos de \emph{Metadata}, 
+responsables de la coordinación global, resolución de nombres, ubicación de datos y control de la replicación; y nodos de \emph{Almacenamiento}, donde reside físicamente la información. 
+Esta separación de responsabilidades permite escalar horizontalmente, mantener sesiones aisladas y delegar las operaciones críticas en un componente centralizado capaz de serializar accesos y decisiones globales.
+Para la tolerancia a fallos, el sistema adopta un modelo de replicación con un factor fijo de tres copias, distribuidas entre los nodos de almacenamiento. La coordinación entre componentes se realiza mediante RPC internos y mecanismos de bloqueo lógico
+ gestionados por el servicio de Metadata, que además emplea un algoritmo de elección de líder sencillo para mantener una única autoridad activa incluso ante fallos. La comunicación con el cliente se mantiene íntegramente a través del protocolo FTP estándar, preservando compatibilidad sin modificar herramientas existentes.
+Este informe detalla la arquitectura del sistema, los procesos que lo componen, los mecanismos de comunicación, coordinación, nombrado, localización, consistencia, replicación, seguridad y tolerancia a fallos. Asimismo, se presentan las decisiones de diseño adoptadas, las limitaciones técnicas encontradas y las razones por las cuales se priorizó un enfoque simple y robusto sobre soluciones más complejas que exceden el alcance académico del proyecto.
+\end{abstract}
+
+\vspace{5cm}
+
+\vspace*{\fill}
+\begin{center}
+    \small \textbf{Integrantes del Equipo}
+\end{center}
+\begin{enumerate}
+    \item Javier Alejandro González Díaz \hspace{3cm}C-412
+    \item Kendry Javier del Pino Barbosa \hspace{3cm}C-412
+\end{enumerate}
+
+\thispagestyle{empty}
+
+\newpage
+
+\tableofcontents
+
+\newpage
+
+\section{Arquitectura y Diseño del Sistema}
+
+\subsection{Organización general y Roles del Sistema Distribuido}
+
+    La idea central del sistema es construir un clúster lógico de servidores FTP formado por varios nodos con responsabilidades bien definidas, desplegados como contenedores en Docker Swarm y 
+orquestados para trabajar de forma coordinada. Desde el punto de vista del usuario final, el sistema se presenta como un único servidor FTP estándar, pero internamente se comporta como
+un sistema distribuido tolerante a fallos. 
+
+    Los nodos del sistema se pueden clasificar en las siguientes categorías principales:
+
+\begin{itemize}
+    \item \textbf{Nodos Router/Front-end (R):} Son los puntos de entrada al sistema. Cada Router expone una interfaz FTP compatible con el estándar RFC 959 y atiende directamente a los clientes. 
+    Estos nodos no almacenan datos de forma persistente (a lo sumo mantienen caché temporal) y su responsabilidad principal es:
+    \begin{itemize}
+        \item Autenticar a los usuarios.
+        \item Gestionar las sesiones FTP. Establecer y mantener las transferencias de datos hacia/desde los nodos de almacenamiento apropiados, actuando como proxy de datos.
+        \item Redirigir las solicitudes de transferencia de archivos a los nodos de almacenamiento adecuados.
+        \end{itemize}
+    \item \textbf{Nodos de Metadata/ Coordinación (M):} Mantienen la vista global del sistema de archivos y del estado de las réplicas. Almacenan:
+    \begin{itemize}
+        \item El espacio de nombres lógico (ejemplo: /user1/docs/file.txt).
+        \item El mapeo entre un identificador de fichero y el conjunto de nodos de almacenamiento que contienen sus réplicas.
+        \item Metadatos adicionales como tamaño, propietario, permisos y versión.
+Estos nodos forman un pequeño clúster replicado bajo un esquema de primario–copia (primary–backup): existe un nodo líder 
+que procesa todas las operaciones de escritura y lectura de metadata, y uno o más nodos respaldo que mantienen copias actualizadas del estado. 
+La lógica de consenso se mantiene deliberadamente simple para reducir la complejidad de implementación.
+        \end{itemize}
+            \item \textbf{Nodos de Almacenamiento (S):} Son responsables del almacenamiento persistente de los archivos. Cada nodo S ejecuta un servidor FTP que gestiona el acceso a los datos en disco y atiende las operaciones de lectura y escritura que le son delegadas por los Routers. 
+    Los ficheros se almacenan de forma replicada: 
+    para cada archivo se mantienen varias copias distribuidas en diferentes nodos S, con el objetivo de garantizar la tolerancia a fallos y evitar pérdida de datos ante la caída de un nodo.
+\end{itemize}
+
+ Nótese que a pesar de que en la implementación concreta ciertos roles podrían llegar a convivir en un mismo host físico, a nivel de diseño se tratan como componentes lógicos claramente separados.
+
+\subsection{Distribución de servicios en las redes de Docker}
+
+El despliegue del sistema se realiza sobre Docker Swarm utilizando redes overlay que separan el tráfico interno del sistema del tráfico con los clientes externos.
+
+\begin{itemize}
+    \item \textbf{Red} \textit{frontend\_net:}
+    \begin{itemize}
+        \item Conectada a los nodos Router y a la interfaz de red hacia el exterior.
+        \item Los clientes se conectan a un servicio Swarm (ftp.cluster) que balancea las conexiones FTP entre las distintas réplicas del Router.
+        \item Desde el punto de vista del cliente, existe un único servidor FTP.
+    \end{itemize} 
+    \item \textbf{Red} \textit{backend\_net:}
+    \begin{itemize}
+        \item Conectada a los nodos Router, Metadata y Almacenamiento.
+        \item Intercambio de mensajes de coordinación (heartbeats, notificaciones de fallo, etc.).
+        \item Tráfico de datos FTP interno entre Routers y nodos de almacenamiento.
+    \end{itemize}
+\end{itemize}
+
+\textit{Nota:} En el entorno físico disponible (dos máquinas), se plantea una distribución de servicios representativa:
+    \begin{itemize}
+        \item \textbf{Máquina A:}
+        \begin{itemize}
+            \item 1 contenedor Router (R)
+            \item 2 contenedores de almacenamiento (S)
+            \item 1 contenedor de metadata/coordinación (M).
+        \end{itemize}
+        \item \textbf{Máquina B:}
+        \begin{itemize}
+            \item 1 contenedor Router (R)
+            \item 2 contenedores de almacenamiento (S)
+            \item 2 contenedores de metadata/coordinación (M).
+        \end{itemize}
+    \end{itemize}
+Con esta configuración, todos los roles lógicos están presentes en ambos hosts, lo cual favorece la tolerancia a fallos, ya que la caída completa de una máquina no implica la desaparición total de un rol del sistema. A continuación un diagrama ilustrativo de la arquitectura del sistema distribuido abstraído de las limitaciones físicas:
+
+% \includegraphics[width=0.8\textwidth]{}
+
+% Contenido de requerimientos de entorno
+
+\section{Procesos – ¿Cuántos programas/servicios hay?}
+
+\subsection{Tipos de procesos}
+El sistema se compone de tres tipos principales de procesos o servicios:
+
+\paragraph{Proceso RouterFTP:}
+Es la evolución del servidor FTP, adaptado al rol de Router.
+\begin{itemize}
+    \item Acepta conexiones de control y datos FTP desde los clientes.
+    \item Crea hilos o procesos hijos para atender múltiples clientes de forma simultánea.
+    \item Implementa la lógica de traducción de comandos FTP a operaciones distribuidas.
+    \item Incluye un cliente RPC/REST para comunicarse con los nodos de Metadata y resolver la ubicación de los archivos.
+\end{itemize}
+
+\paragraph{Proceso MetadataService:}
+Es un servicio interno que ofrece una interfaz de consulta y actualización de metadata. Sus funciones incluyen:
+\begin{itemize}
+    \item Resolver paths lógicos: \texttt{resolve(path) $\rightarrow$ [réplicas]}.
+    \item Registrar la creación de nuevos ficheros: \texttt{createFile(path, size, user) $\rightarrow$ [réplicas]}.
+    \item Actualizar el estado reportado por los nodos de almacenamiento: \texttt{reportReplica(nodeId, fileId, version)}.
+    \item Mantener un log de operaciones que se replica hacia nodos de backup siguiendo un modelo primario–copia.
+\end{itemize}
+Este servicio no expone FTP, ya que su comunicación es exclusivamente interna.
+
+\paragraph{Proceso StorageFTP:}
+Ejecuta un servidor FTP convencional sobre el sistema de archivos local del contenedor de almacenamiento. Además:
+\begin{itemize}
+    \item Incorpora un pequeño agente responsable de reportar periódicamente a Metadata qué ficheros y versiones están disponibles en ese nodo.
+    \item Ejecuta las órdenes de replicación que Metadata le indique, copiando ficheros hacia o desde otros nodos S para mantener el factor de replicación deseado.
+\end{itemize}
+
+\subsection{Agrupación de procesos en instancias}
+Desde el punto de vista de contenedores y servicios en Docker Swarm, se adopta la siguiente estrategia:
+
+\paragraph{Separación por rol:}
+\begin{itemize}
+    \item \textbf{Servicio router}: instancias del proceso RouterFTP.
+    \item \textbf{Servicio metadata}: instancias del proceso MetadataService.
+    \item \textbf{Servicio storage}: instancias del proceso StorageFTP.
+\end{itemize}
+Esta separación permite escalar de forma independiente cada rol en función de la carga: por ejemplo, aumentar el número de Routers si crece el número de clientes concurrentes, o incrementar el número de nodos de almacenamiento si se requiere mayor capacidad.
+
+En el contexto de la asignatura se evita fusionar roles en un mismo contenedor, priorizando una arquitectura clara y didáctica.
+
+\subsection{Patrón de diseño respecto al desempeño}
+A nivel de desempeño se aplican los siguientes patrones:
+
+\paragraph{En los servidores FTP (RouterFTP y StorageFTP):}
+\begin{itemize}
+    \item Se utiliza un enfoque clásico de \textbf{multi-hilo o procesos concurrentes}: cada conexión de cliente puede ser atendida por un hilo dedicado. Esto permite atender múltiples clientes en paralelo y aprovechar mejor los recursos de CPU disponibles.
+\end{itemize}
+
+\paragraph{En el servicio de Metadata (MetadataService):}
+\begin{itemize}
+    \item Las operaciones críticas para la consistencia del sistema (creación de ficheros, cambios de permisos, modificaciones del espacio de nombres) se gestionan de forma \textbf{síncrona}, esperando confirmación de replicación hacia los nodos de backup antes de responder al Router.
+    \item Las tareas de mantenimiento, como el re-balanceo de réplicas o la limpieza de entradas obsoletas, se ejecutan de manera \textbf{asíncrona} en segundo plano, evitando bloquear las operaciones principales.
+\end{itemize}
+
+\paragraph{Entre servicios (R $\leftrightarrow$ M, M $\leftrightarrow$ M, S $\leftrightarrow$ S):}
+\begin{itemize}
+    \item La comunicación se realiza mediante \textbf{RPC sobre TCP}, típicamente con mensajes codificados en JSON sobre HTTP.
+    \item Se definen \textbf{timeouts} y estrategias de \textbf{reintento} para manejar nodos temporalmente inaccesibles.
+    \item Algunas operaciones, como la replicación masiva, se organizan en colas internas para ser procesadas de forma gradual, reduciendo picos de carga.
+\end{itemize}
+
+\section{Comunicación – ¿Cómo se envía información?}
+
+\subsection{Tipo de comunicación}
+En el sistema conviven cuatro tipos principales de comunicación:
+
+\paragraph{Cliente $\leftrightarrow$ Router / Storage:}
+\begin{itemize}
+    \item Se utiliza exclusivamente el protocolo \textbf{FTP clásico} (canal de control y canal de datos) conforme a la especificación RFC 959.
+    \item Los clientes se conectan siempre a un Router; en el diseño adoptado, el Router actúa como \textbf{proxy de datos}, manteniendo el control completo del flujo entre cliente y almacenamiento.
+\end{itemize}
+
+\paragraph{Router $\leftrightarrow$ Metadata:}
+\begin{itemize}
+    \item La comunicación se implementa mediante \textbf{RPC/REST sobre TCP} a través de la red \texttt{backend\_net}.
+    \item El Router envía peticiones al servicio de Metadata para:
+    \begin{itemize}
+        \item Resolver rutas lógicas a conjuntos de réplicas.
+        \item Registrar nuevas operaciones sobre el espacio de nombres.
+        \item Consultar permisos y propietarios de los ficheros.
+    \end{itemize}
+\end{itemize}
+
+\paragraph{Metadata $\leftrightarrow$ Metadata:}
+\begin{itemize}
+    \item Entre instancias de Metadata se intercambian \textbf{mensajes internos de coordinación y replicación de logs}.
+    \item Estos mensajes incluyen, por ejemplo, actualizaciones de registro, \emph{heartbeats} y notificaciones de cambio de estado.
+    \item El esquema de \textbf{primario–copia} se apoya en este canal para mantener el estado replicado, evitando la complejidad de un algoritmo de consenso completo.
+\end{itemize}
+
+\paragraph{Metadata $\leftrightarrow$ Storage:}
+\begin{itemize}
+    \item Entre los nodos de Metadata y los nodos de almacenamiento se establece un \textbf{canal de control} sobre TCP en la red \texttt{backend\_net}, implementado mediante mensajes ligeros (RPC/REST).
+    \item Desde Metadata hacia Storage se envían \textbf{órdenes de gestión de réplicas}, tales como:
+    \begin{itemize}
+        \item Crear una nueva réplica de un fichero en un nodo S concreto.
+        \item Re\-sincronizar una réplica desactualizada a partir de otra réplica más reciente.
+        \item Invalidar o marcar como obsoleta una réplica tras una reconfiguración.
+    \end{itemize}
+    \item Desde Storage hacia Metadata se envían \textbf{mensajes de confirmación y reporte de estado}, que incluyen:
+    \begin{itemize}
+        \item Confirmaciones de éxito o fallo de las órdenes anteriores (\emph{ACK/NACK}) asociadas a un \texttt{FileID} y a una versión concreta.
+        \item Información periódica sobre el conjunto de ficheros almacenados localmente y sus versiones.
+        \item Indicadores de estado del nodo (espacio libre, disponibilidad, incidencias).
+    \end{itemize}
+    \item Esta comunicación es asimétrica: Metadata toma las decisiones globales y emite órdenes, mientras que los nodos de almacenamiento ejecutan dichas órdenes y reportan su resultado, permitiendo a Metadata mantener una visión consistente del estado de las réplicas en el sistema.
+\end{itemize}
+
+\paragraph{Storage $\leftrightarrow$ Storage:}
+\begin{itemize}
+    \item Para la replicación de datos entre nodos de almacenamiento se utiliza también \textbf{FTP} como protocolo de transferencia, de forma que un nodo S puede actuar como cliente FTP de otro nodo S en la red interna.
+    \item Esta elección mantiene la \textbf{homogeneidad} del sistema en torno al protocolo FTP, simplifica la reutilización de código ya existente y respeta la idea de que todos los servidores relevantes hablan FTP, aunque esta comunicación sólo sea visible en la red de \emph{backend}.
+\end{itemize}
+
+\subsection{Comunicación cliente–servidor y servidor–servidor}
+
+\paragraph{Relación cliente–servidor:}
+\begin{itemize}
+    \item El cliente se conecta al nombre lógico del servicio, \texttt{ftp.cluster}, que está asociado en Docker Swarm a un conjunto de contenedores Router.
+    \item El balanceador de Swarm distribuye las conexiones FTP entre las distintas instancias de Router.
+    \item Para el usuario, la interacción es idéntica a la de un único servidor FTP tradicional.
+\end{itemize}
+
+\paragraph{Relación servidor–servidor:}
+\begin{itemize}
+    \item \textbf{R $\rightarrow$ M:} El Router envía peticiones RPC al servicio de Metadata para resolver nombres, consultar permisos y registrar nuevas operaciones del sistema de archivos.
+    \item \textbf{R $\rightarrow$ S:} El Router establece conexiones FTP de datos hacia los nodos de almacenamiento para realizar las operaciones de lectura y escritura de ficheros, actuando como intermediario entre el cliente y el almacenamiento.
+    \item \textbf{M $\rightarrow$ S:} Metadata envía órdenes de replicación, invalidación o sincronización a los nodos de almacenamiento, indicándoles qué ficheros deben copiar o actualizar.
+    \item \textbf{M $\leftrightarrow$ M:} Las instancias de Metadata intercambian mensajes para replicar el estado, detectar fallos entre sí y mantener la consistencia del clúster de control.
+\end{itemize}
+
+\subsection{Comunicación entre procesos}
+\begin{itemize}
+    \item Dentro de cada contenedor, la comunicación entre hilos o procesos internos se realiza mediante los mecanismos clásicos del sistema operativo (memoria compartida, colas internas, estructuras de datos compartidas protegidas con primitivas de sincronización, etc.).
+    \item Entre contenedores y nodos físicos, toda la comunicación se basa en \textbf{sockets TCP} sobre la red \texttt{backend\_net}.
+    \item Sobre estos sockets se definen mensajes de nivel superior, tales como:
+    \begin{itemize}
+        \item \texttt{PING / PONG} para detección de \emph{aliveness}.
+        \item \texttt{REPLICA\_MISSING(fileId, version)} para notificar inconsistencias en réplicas.
+        \item \texttt{HEARTBEAT(nodeId, load, freeSpace)} para informar del estado de un nodo.
+    \end{itemize}
+\end{itemize}
+Este diseño mantiene la comunicación simple, trazable y fácilmente depurable.
+
+\section{Coordinación – ¿Cómo se ponen de acuerdo los servicios?}
+
+\subsection{Sincronización de acciones}
+Existen varias operaciones que requieren coordinación estricta para preservar la coherencia del sistema:
+\begin{itemize}
+    \item Creación de nuevos ficheros.
+    \item Borrado y renombrado de entradas en el espacio de nombres.
+    \item Modificación de permisos y propietarios.
+\end{itemize}
+
+Para todas estas operaciones, el flujo es:
+\begin{enumerate}
+    \item El Router envía la solicitud al \textbf{líder de Metadata}.
+    \item El líder registra la operación en su \textbf{log interno}.
+    \item El líder \textbf{replica} dicha entrada en los nodos de \emph{backup}.
+    \item Una vez que la replicación se ha completado, el líder aplica la operación a su estado local y responde al Router.
+\end{enumerate}
+De esta manera se garantiza que las modificaciones estructurales se procesen en un \textbf{orden global bien definido}, reduciendo las posibilidades de inconsistencias en el espacio de nombres.
+
+\subsection{Acceso exclusivo y condiciones de carrera}
+Para evitar \textbf{condiciones de carrera}, especialmente en operaciones de escritura concurrente sobre un mismo fichero o directorio, se adoptan dos niveles de control:
+
+\paragraph{A nivel de Metadata:}
+\begin{itemize}
+    \item Se mantiene una \textbf{tabla de bloqueos lógicos}, por ejemplo \texttt{locks[path] = ownerRouterId}.
+    \item Antes de permitir una escritura, el Router debe \textbf{adquirir un bloqueo} sobre el recurso en el nodo de Metadata.
+    \item Mientras un \texttt{lock} esté activo, otras operaciones que compitan por el mismo recurso se bloquean o se rechazan hasta que el \texttt{lock} se libere.
+\end{itemize}
+
+\paragraph{A nivel de almacenamiento:}
+\begin{itemize}
+    \item Los servidores StorageFTP pueden apoyarse en mecanismos de \emph{lock} a nivel de sistema de archivos o asumir que la exclusión ya fue garantizada por Metadata, simplificando su lógica.
+    \item En cualquier caso, las escrituras concurrentes se gestionan de forma controlada para evitar corrupción de datos.
+\end{itemize}
+
+\newpage
+
+\subsection{Toma de decisiones distribuidas}
+Diversas decisiones deben tomarse de manera distribuida:
+
+\paragraph{Elección del nodo de Metadata líder:}
+\begin{itemize}
+    \item El subsistema de Metadata requiere una única autoridad que serialice los cambios del espacio de nombres y coordine la replicación de los ficheros. Para ello se utiliza un \textbf{algoritmo de elección de líder sencillo, basado en el algoritmo Bully}, que resulta adecuado para un entorno controlado y con pocos nodos.    
+    \item El funcionamiento general es el siguiente: ante la caída del líder o la ausencia de \emph{heartbeats}, un nodo de Metadata inicia una elección enviando un mensaje a los nodos con identificadores mayores. Si recibe respuesta de alguno de ellos, cede la elección y espera a que un nodo de mayor prioridad complete el proceso. Si no recibe ninguna respuesta, se autoproclama \textbf{nuevo líder} y notifica su rol al resto de nodos.
+    \item Este mecanismo proporciona una solución práctica para mantener la disponibilidad del servicio de Metadata sin introducir la complejidad de un protocolo de consenso completo como Raft, cuyo diseño y correcta implementación no son objetivos de este proyecto y exceden el alcance de la asignatura. La consistencia del estado de Metadata se garantiza mediante un esquema \emph{primario–copia}, suficientemente robusto para las necesidades de esta arquitectura.
+\end{itemize}
+
+
+\paragraph{Selección de nodos de almacenamiento para nuevas réplicas:}
+\begin{itemize}
+    \item El líder de Metadata mantiene información sobre espacio disponible y carga de cada nodo S.
+    \item Para cada nuevo fichero se eligen varias réplicas intentando:
+    \begin{itemize}
+        \item Balancear la carga global.
+        \item Distribuir las réplicas entre ambos \emph{hosts} físicos siempre que sea posible.
+    \end{itemize}
+\end{itemize}
+
+\paragraph{Reacción ante la caída de nodos:}
+\begin{itemize}
+    \item Si un nodo deja de enviar \emph{heartbeats} durante un intervalo de tiempo determinado, 
+    se le marca como \texttt{“SUSPECT”} y posteriormente como \texttt{“DOWN”}.
+    \item Metadata reconfigura internamente las listas de réplicas, evitando utilizar nodos marcados como inactivos.
+    \item Cuando un nodo retorna, se sincroniza con el estado actual antes de volver a ser considerado completamente operativo.
+\end{itemize}
+
+A continuación un ejemplo ilustrativo del flujo de creación de un nuevo fichero, para ilustrar de forma simple la coordinación entre componentes:
+
+\vspace{2cm}
+
+\includegraphics[width=1\textwidth]{img/Diagrama de comportamiento del Sistema FTP-2025-11-28-201101.png}
+
+% Contenido de funcionalidades
+\newpage
+
+\section{Nombrado y Localización – ¿Dónde está cada recurso?}
+
+\subsection{Identificación de datos y servicios}
+La identificación de los recursos sigue dos niveles:
+
+\paragraph{Datos (ficheros):}
+Cada fichero se identifica por:
+\begin{itemize}
+    \item Un \textbf{path lógico} visible para el usuario, por ejemplo \texttt{/user1/docs/informe.pdf}.
+    \item Un \textbf{identificador interno (FileID)}, que puede derivarse del \emph{path} y un número de versión, y que se utiliza internamente para referenciar el archivo de forma única y estable.
+\end{itemize}
+
+\paragraph{Servicios (nodos del sistema):}
+\begin{itemize}
+    \item Cada nodo tiene un \textbf{nodeId lógico} y se asocia a un nombre de servicio en Docker Swarm (por ejemplo, \texttt{router1}, \texttt{storage2}).
+    \item A partir del \texttt{nodeId} y el servicio de Swarm es posible obtener la \textbf{dirección de red y el puerto} correspondientes.
+\end{itemize}
+
+\subsection{Ubicación de datos y servicios}
+
+\paragraph{Ubicación de datos:}
+\begin{itemize}
+    \item El servicio de Metadata mantiene una tabla principal donde se asocia cada \texttt{FileID} a la lista de réplicas:
+    $ \mathrm{FileID} \rightarrow (\mathrm{nodeId}_1,\mathrm{version}), (\mathrm{nodeId}_2,\mathrm{version}), \ldots $
+    \item Esta información se actualiza cuando se crean nuevas réplicas, se eliminan nodos o se detectan inconsistencias.
+\end{itemize}
+
+\paragraph{Ubicación de servicios:}
+\begin{itemize}
+    \item Los servicios \texttt{router} y \texttt{storage} se exponen mediante el sistema de \textbf{resolución de nombres y balanceo de Docker Swarm}.
+    \item Metadata puede descubrir y actualizar la lista de nodos activos mediante mecanismos de \textbf{registro estático y/o heartbeats}.
+\end{itemize}
+
+\subsection{Localización (cómo llegar)}
+El siguiente flujo ilustra el mecanismo de localización durante la lectura de un fichero:
+
+\begin{enumerate}
+    \item El cliente ejecuta el comando \texttt{RETR /user1/docs/informe.pdf} sobre el servidor FTP lógico.
+    \item El Router recibe el comando y traduce el \emph{path} lógico a un \texttt{FileID}.
+    \item El Router consulta a Metadata mediante \texttt{resolve(FileID)}.
+    \item Metadata responde con una \textbf{lista de réplicas ordenada por prioridad}, por ejemplo \texttt{[S1, S2, S3]}.
+    \item El Router intenta establecer un canal de datos FTP con el nodo S de mayor prioridad (\texttt{S1}).
+    \item Si \texttt{S1} no está disponible, reintenta con \texttt{S2}, y así sucesivamente.
+\end{enumerate}
+De este modo, el cliente no necesita conocer la existencia de múltiples nodos: la localización y selección de réplicas queda completamente \textbf{encapsulada} en la lógica del Router y del servicio de Metadata.
+
+\section{Consistencia y Replicación – ¿Qué pasa con varias copias?}
+
+\subsection{Distribución de datos}
+El sistema no utiliza una DHT, sino una \textbf{distribución controlada centralmente} por el servicio de Metadata, lo que simplifica el razonamiento sobre el comportamiento ante fallos.
+
+Cuando se crea un fichero, el líder de Metadata:
+\begin{itemize}
+    \item Decide el conjunto de nodos de almacenamiento que lo almacenarán.
+    \item Tiene en cuenta criterios como:
+    \begin{itemize}
+        \item Espacio libre disponible.
+        \item Carga de cada nodo.
+        \item Distribución entre los dos \emph{hosts} físicos para minimizar riesgo ante la caída completa de una máquina.
+    \end{itemize}
+\end{itemize}
+El objetivo es que cada fichero cuente con un número fijo de réplicas, distribuidas de forma equilibrada en el clúster.
+
+\subsection{Replicación y cantidad de réplicas}
+Para lograr un sistema \textbf{2-tolerante a fallos} a nivel lógico, se establece un factor de replicación $\mathbf{R = 3}$ para cada fichero. Esto significa que:
+\begin{itemize}
+    \item Cada fichero se almacena en \textbf{tres nodos de almacenamiento distintos}.
+    \item El sistema puede seguir ofreciendo acceso a los datos incluso si hasta dos réplicas de un fichero dejan de estar disponibles.
+\end{itemize}
+
+El protocolo de escritura adoptado es el siguiente:
+\begin{enumerate}
+    \item El Router consulta a Metadata las réplicas asignadas para el fichero.
+    \item El Router envía la nueva versión del fichero a una réplica primaria ($S_1$).
+    \item $S_1$ almacena el fichero localmente e:
+    \begin{itemize}
+        \item Inicia la replicación hacia $S_2$ y $S_3$ en \emph{background}, confirmando al cliente tras un número mínimo de réplicas confirmadas (dos) para reducir la latencia.
+    \end{itemize}
+\end{enumerate}
+En el contexto del proyecto se da prioridad a una implementación simple y comprensible del protocolo de replicación, aún cuando ello implique sacrificar ciertas garantías de consistencia fuerte exhaustiva.
+
+\subsection{Confiabilidad tras una actualización}
+Para garantizar que las réplicas convergen hacia un estado consistente:
+\begin{itemize}
+    \item Cada fichero mantiene un \textbf{número de versión} que se incrementa con cada escritura.
+    \item Cuando un nodo de almacenamiento se reincorpora tras una caída, se sincroniza con Metadata:
+    \begin{itemize}
+        \item Envía su lista de (\texttt{FileID}, \texttt{localVersion}) para informar del estado local.
+        \item Metadata responde indicando qué ficheros están desactualizados o faltan.
+        \item El nodo descarga las versiones necesarias de otros nodos de almacenamiento actualizados.
+    \end{itemize}
+\end{itemize}
+
+En caso de partición de red, puede ocurrir que diferentes particiones acepten escrituras concurrentes sobre el mismo fichero. Para manejar estos escenarios se adopta una política simple:
+\begin{itemize}
+    \item Se emplea un esquema de \texttt{last-write-wins} basado en números de versión. Requiere una imlpementación de relojes lógicos simples.
+    \item Cuando Metadata detecta versiones incompatibles, conserva aquella considerada más reciente.
+\end{itemize}
+
+\section{Tolerancia a fallas – ¿Qué pasa cuando algo se rompe?}
+
+\subsection{Respuesta a errores}
+El diseño contempla distintos tipos de fallos:
+\begin{itemize}
+    \item Caída de nodos de almacenamiento (S).
+    \item Caída de nodos de metadata/coordinación (M).
+    \item Caída de nodos Router (R).
+    \item Particiones de red entre los dos \emph{hosts} físicos.
+\end{itemize}
+
+Para responder a estos eventos, el sistema implementa los siguientes mecanismos:
+
+\paragraph{Heartbeats periódicos:}
+\begin{itemize}
+    \item Cada nodo envía \textbf{señales de vida} al servicio de Metadata.
+    \item La ausencia de \emph{heartbeats} desencadena la transición a estados de \textbf{sospecha y caída}.
+\end{itemize}
+
+\paragraph{Reintentos y conmutación por error:}
+\begin{itemize}
+    \item Si un Router no puede contactar con una réplica primaria ($S_1$), intenta acceder a las \textbf{réplicas alternativas} ($S_2, S_3$).
+    \item Esto mejora la disponibilidad percibida por el cliente.
+\end{itemize}
+
+\paragraph{Reconfiguración automática:}
+\begin{itemize}
+    \item Cuando un nodo de almacenamiento se considera definitivamente caído, Metadata planifica la creación de \textbf{nuevas réplicas} en otros nodos para restaurar el factor de replicación establecido.
+\end{itemize}
+
+\subsection{Nivel de tolerancia a fallos esperado}
+El objetivo es alcanzar un nivel \textbf{2-tolerante a fallos por rol} en el modelo lógico:
+
+\paragraph{Metadata:}
+\begin{itemize}
+    \item Se despliegan múltiples nodos M bajo un esquema \textbf{primario–copia}.
+    \item La pérdida de uno o varios nodos de \emph{backup} no impide que el líder siga funcionando, aunque su caída requiere una recuperación manual o semiautomática.
+\end{itemize}
+
+\paragraph{Storage:}
+\begin{itemize}
+    \item Con un factor de replicación de $R=3$, un fichero puede seguir disponible mientras al menos \textbf{una réplica permanezca accesible}.
+    \item Esto permite tolerar la caída simultánea de \textbf{hasta dos nodos} de almacenamiento que contengan dicho fichero.
+\end{itemize}
+
+\paragraph{Router:}
+\begin{itemize}
+    \item Al desplegar más de un Router, la caída de uno de ellos \textbf{no interrumpe el servicio}, ya que los clientes pueden seguir conectándose a las instancias restantes.
+\end{itemize}
+\textbf{Limitación práctica:} la caída completa de un \emph{host} físico puede implicar la pérdida simultánea de varias réplicas. Por ello, se procura que las réplicas de un mismo fichero se \textbf{repartan entre los dos hosts}, reduciendo el riesgo.
+
+\subsection{Fallos parciales, nodos caídos, nodos nuevos}
+El sistema está preparado para gestionar situaciones dinámicas:
+
+\paragraph{Nodos caídos temporalmente:}
+\begin{itemize}
+    \item Se marcan como \texttt{DOWN} en Metadata. Sus réplicas no se utilizan.
+    \item Al regresar, el nodo entra en estado \texttt{RECOVERING}, \textbf{sincroniza su estado} con el clúster y, una vez actualizado, pasa a estar disponible (\texttt{UP}).
+\end{itemize}
+
+\paragraph{Nuevos nodos:}
+\begin{itemize}
+    \item Al incorporarse un nuevo nodo de almacenamiento, se registra en Metadata.
+    \item Se le asignan \textbf{gradualmente nuevas réplicas} para contribuir al balance de carga y aumentar la capacidad.
+\end{itemize}
+
+\paragraph{Partición de red:}
+\begin{itemize}
+    \item Cada partición ve a los nodos del otro segmento como caídos.
+    \item Se puede priorizar:
+    \begin{itemize}
+        \item La \textbf{consistencia} (sólo la partición que mantiene el líder de Metadata aceptaría escrituras), o
+        \item La \textbf{disponibilidad} (permitiendo escrituras en ambas particiones y resolviendo conflictos al reconectar).
+    \end{itemize}
+    \item Una vez restablecida la comunicación, los nodos de Metadata intercambian sus \emph{logs} y estados, y los nodos de almacenamiento sincronizan las réplicas desactualizadas.
+\end{itemize}
+
+\section{Seguridad – ¿Qué tan vulnerable es el diseño?}
+
+\subsection{Seguridad en la comunicación}
+En el plano de la comunicación se consideran dos niveles:
+
+\paragraph{Entre cliente y Routers (R):}
+\begin{itemize}
+    \item El canal candidato es \textbf{FTPS} (FTP sobre TLS) para proteger credenciales y datos en tránsito.
+    \item En caso de no implementar FTPS, se justifica que el entorno de pruebas se opera en una red controlada y se señala explícitamente esta limitación como trabajo futuro.
+\end{itemize}
+
+\paragraph{Entre nodos internos (R, M, S) en \texttt{backend\_net}:}
+\begin{itemize}
+    \item La red de \emph{backend} se configura como una \textbf{red overlay privada}, no directamente accesible desde redes externas.
+    \item Opcionalmente, las peticiones RPC pueden ir firmadas con un token compartido.
+\end{itemize}
+
+\subsection{Seguridad respecto al diseño}
+El diseño del sistema incorpora varios principios básicos de seguridad:
+
+\paragraph{Separación de roles y responsabilidades:}
+\begin{itemize}
+    \item La lógica de \textbf{autoridad} (decisiones sobre espacio de nombres, permisos y replicación) se concentra en el servicio de Metadata.
+    \item Los nodos de almacenamiento se limitan a gestionar datos locales y a obedecer órdenes; \textbf{no deciden sobre la política global}.
+\end{itemize}
+
+\paragraph{Principio de mínimo privilegio:}
+\begin{itemize}
+    \item Cada nodo sólo tiene acceso al conjunto de recursos que necesita para desempeñar su función.
+    \item Los procesos de almacenamiento sólo operan sobre su propio volumen de datos.
+    \item Los Routers \textbf{no manipulan directamente el estado interno} de Metadata, sino que interactúan a través de interfaces bien definidas.
+\end{itemize}
+
+\paragraph{Persistencia confiable de Metadata:}
+\begin{itemize}
+    \item El estado del servicio de Metadata se \textbf{persiste en disco} en los nodos M, evitando que el reinicio de un proceso implique pérdida de información crítica.
+    \item El uso de \emph{logs} permite \textbf{reconstruir el estado tras fallos bruscos} (Backguard Recovery), posibilitando retroceder a un estado funcional, aumentando la robustez del sistema.
+\end{itemize}
+
+\subsection{Autenticación y autorización}
+La autenticación y autorización se centralizan en el servicio de Metadata:
+
+\paragraph{Autenticación:}
+\begin{itemize}
+    \item Los usuarios se identifican mediante credenciales (\textbf{usuario/contraseña}) transmitidas a través del protocolo FTP.
+    \item El Router delega la \textbf{verificación de estas credenciales} al servicio de Metadata.
+\end{itemize}
+
+\paragraph{Autorización:}
+\begin{itemize}
+    \item Para cada fichero o directorio se almacenan \textbf{permisos asociados} (propietario, grupo, bits de acceso al estilo Unix).
+    \item Ante operaciones sensibles (\texttt{RETR}, \texttt{STOR}, \texttt{DELE}, etc.), el Router consulta a Metadata si el usuario tiene los \textbf{permisos requeridos} antes de ejecutarlas.
+\end{itemize}
+
+\paragraph{Aislamiento entre usuarios:}
+\begin{itemize}
+    \item Cada usuario dispone de un \textbf{directorio ``home'' lógico}, y la vista del sistema de archivos se limita a aquellos recursos para los que posee permisos.
+    \item Esto evita accesos indebidos a datos de otros usuarios o a zonas internas del sistema.
+\end{itemize}
+
+
+\begin{center}
+\includegraphics*[width=0.15\textwidth]{img/matcom.jpg}
+\begin{center}
+    \footnotesize{Facultad de Matemática y Computación \\ Universidad de La Habana}
+\end{center}
+\end{center}
+
+\end{document}
