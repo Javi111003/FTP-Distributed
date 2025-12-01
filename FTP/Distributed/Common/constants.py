@@ -1,0 +1,146 @@
+"""
+Constantes del sistema distribuido FTP
+"""
+from enum import Enum, IntEnum
+
+# Puertos de servicios
+METADATA_RPC_PORT = 5000
+STORAGE_RPC_PORT = 5001
+ROUTER_FTP_PORT = 21
+ROUTER_PASV_PORT_START = 30000
+ROUTER_PASV_PORT_END = 30100
+
+# Configuración de replicación
+REPLICATION_FACTOR = 3
+MIN_REPLICAS_FOR_WRITE = 2  # Mínimo de réplicas confirmadas para éxito
+
+# Timeouts (en segundos)
+HEARTBEAT_INTERVAL = 5
+HEARTBEAT_TIMEOUT = 15
+RPC_TIMEOUT = 10
+LEADER_ELECTION_TIMEOUT = 10
+SYNC_TIMEOUT = 60
+
+# Estados de nodos
+class NodeState(Enum):
+    UP = "UP"
+    DOWN = "DOWN"
+    RECOVERING = "RECOVERING"
+    SUSPECT = "SUSPECT"
+
+# Tipos de nodos
+class NodeType(Enum):
+    ROUTER = "ROUTER"
+    METADATA = "METADATA"
+    STORAGE = "STORAGE"
+
+# Tipos de mensajes RPC
+class MessageType(Enum):
+    # Heartbeat
+    HEARTBEAT = "HEARTBEAT"
+    HEARTBEAT_ACK = "HEARTBEAT_ACK"
+    
+    # Elección de líder
+    LEADER_ELECTION = "LEADER_ELECTION"
+    LEADER_ELECTED = "LEADER_ELECTED"
+    LEADER_QUERY = "LEADER_QUERY"
+    LEADER_RESPONSE = "LEADER_RESPONSE"
+    
+    # Operaciones de metadata
+    AUTH_REQUEST = "AUTH_REQUEST"
+    AUTH_RESPONSE = "AUTH_RESPONSE"
+    
+    LOOKUP_FILE = "LOOKUP_FILE"
+    LOOKUP_RESPONSE = "LOOKUP_RESPONSE"
+    
+    CREATE_FILE = "CREATE_FILE"
+    CREATE_RESPONSE = "CREATE_RESPONSE"
+    
+    DELETE_FILE = "DELETE_FILE"
+    DELETE_RESPONSE = "DELETE_RESPONSE"
+    
+    RENAME_FILE = "RENAME_FILE"
+    RENAME_RESPONSE = "RENAME_RESPONSE"
+    
+    LIST_DIR = "LIST_DIR"
+    LIST_RESPONSE = "LIST_RESPONSE"
+    
+    MKDIR = "MKDIR"
+    MKDIR_RESPONSE = "MKDIR_RESPONSE"
+    
+    RMDIR = "RMDIR"
+    RMDIR_RESPONSE = "RMDIR_RESPONSE"
+    
+    GET_REPLICAS = "GET_REPLICAS"
+    REPLICAS_RESPONSE = "REPLICAS_RESPONSE"
+    
+    # Bloqueos
+    LOCK_REQUEST = "LOCK_REQUEST"
+    LOCK_RESPONSE = "LOCK_RESPONSE"
+    UNLOCK_REQUEST = "UNLOCK_REQUEST"
+    UNLOCK_RESPONSE = "UNLOCK_RESPONSE"
+    
+    # Operaciones de storage
+    STORE_FILE = "STORE_FILE"
+    STORE_RESPONSE = "STORE_RESPONSE"
+    
+    RETRIEVE_FILE = "RETRIEVE_FILE"
+    RETRIEVE_RESPONSE = "RETRIEVE_RESPONSE"
+    
+    REPLICATE_FILE = "REPLICATE_FILE"
+    REPLICATE_RESPONSE = "REPLICATE_RESPONSE"
+    
+    DELETE_LOCAL = "DELETE_LOCAL"
+    DELETE_LOCAL_RESPONSE = "DELETE_LOCAL_RESPONSE"
+    
+    # Sincronización
+    SYNC_REQUEST = "SYNC_REQUEST"
+    SYNC_RESPONSE = "SYNC_RESPONSE"
+    
+    FILE_VERSION_LIST = "FILE_VERSION_LIST"
+    FILE_VERSION_RESPONSE = "FILE_VERSION_RESPONSE"
+    
+    # Registro de nodos
+    REGISTER_NODE = "REGISTER_NODE"
+    REGISTER_RESPONSE = "REGISTER_RESPONSE"
+    
+    UNREGISTER_NODE = "UNREGISTER_NODE"
+    
+    # Permisos
+    CHECK_PERMISSION = "CHECK_PERMISSION"
+    PERMISSION_RESPONSE = "PERMISSION_RESPONSE"
+    
+    UPDATE_FILE_META = "UPDATE_FILE_META"
+    UPDATE_META_RESPONSE = "UPDATE_META_RESPONSE"
+
+# Tipos de bloqueo
+class LockType(Enum):
+    READ = "READ"
+    WRITE = "WRITE"
+
+# Permisos de archivos (estilo Unix)
+class Permission(IntEnum):
+    NONE = 0
+    EXECUTE = 1
+    WRITE = 2
+    READ = 4
+    READ_WRITE = 6
+    READ_EXECUTE = 5
+    WRITE_EXECUTE = 3
+    ALL = 7
+
+# Códigos de respuesta del sistema distribuido
+class DistributedResponseCode(IntEnum):
+    SUCCESS = 0
+    ERROR = 1
+    NOT_FOUND = 2
+    PERMISSION_DENIED = 3
+    ALREADY_EXISTS = 4
+    LOCK_FAILED = 5
+    REPLICA_FAILED = 6
+    NODE_UNAVAILABLE = 7
+    TIMEOUT = 8
+    LEADER_REDIRECT = 9
+    NOT_LEADER = 10
+    SYNC_REQUIRED = 11
+

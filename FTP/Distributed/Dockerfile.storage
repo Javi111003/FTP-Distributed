@@ -1,0 +1,31 @@
+# Dockerfile para el servicio de Storage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copiar código
+COPY FTP /app/FTP
+
+# Instalar dependencias
+COPY FTP/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Crear directorio de datos
+RUN mkdir -p /data/storage
+
+# Asegurar que los paquetes se reconozcan como módulos
+RUN touch /app/FTP/__init__.py && \
+    touch /app/FTP/Distributed/__init__.py && \
+    touch /app/FTP/Distributed/Common/__init__.py && \
+    touch /app/FTP/Distributed/Storage/__init__.py
+
+# Puerto RPC
+EXPOSE 5001
+
+# Variables de entorno por defecto
+ENV PYTHONUNBUFFERED=1
+ENV NODE_TYPE=storage
+
+# Comando de inicio
+CMD ["python", "-u", "-m", "FTP.Distributed.Storage.storage_server"]
+

@@ -1,0 +1,281 @@
+"""
+Elección de líder para el servicio de Metadata.
+Implementa un algoritmo simple de elección de líder basado en IDs.
+"""
+import time
+import threading
+import logging
+from typing import Dict, Optional, List, Callable
+from ..Common.models import NodeInfo
+from ..Common.constants import (
+    NodeState, NodeType, MessageType,
+    LEADER_ELECTION_TIMEOUT, HEARTBEAT_INTERVAL
+)
+from ..Common.rpc_protocol import RPCClient, RPCMessage
+
+logger = logging.getLogger(__name__)
+
+
+class LeaderElection:
+    """
+    Implementa elección de líder usando un algoritmo bully simplificado.
+    El nodo con el ID más alto se convierte en líder.
+    """
+    
+    def __init__(self, node_id: str, node_info: NodeInfo,
+                 on_become_leader: Callable = None,
+                 on_leader_change: Callable = None):
+        self.node_id = node_id
+        self.node_info = node_info
+        self.on_become_leader = on_become_leader
+        self.on_leader_change = on_leader_change
+        
+        self._lock = threading.RLock()
+        self._peers: Dict[str, NodeInfo] = {}  # Otros nodos de metadata
+        self._current_leader: Optional[str] = None
+        self._term = 0  # Término de elección
+        self._is_leader = False
+        self._last_leader_heartbeat = 0
+        
+        self._running = False
+        self._election_thread: Optional[threading.Thread] = None
+        self._rpc_client = RPCClient()
+    
+    def register_peer(self, node: NodeInfo):
+        """Registra un nodo peer de metadata"""
+        with self._lock:
+            if node.node_id != self.node_id and node.node_type == NodeType.METADATA:
+                self._peers[node.node_id] = node
+                logger.info(f"Registered metadata peer: {node.node_id}")
+    
+    def unregister_peer(self, node_id: str):
+        """Elimina un peer de metadata"""
+        with self._lock:
+            if node_id in self._peers:
+                del self._peers[node_id]
+                logger.info(f"Unregistered metadata peer: {node_id}")
+                
+                # Si el líder se fue, iniciar nueva elección
+                if node_id == self._current_leader:
+                    self._start_election()
+    
+    def start(self):
+        """Inicia el servicio de elección de líder"""
+        self._running = True
+        self._election_thread = threading.Thread(target=self._election_loop, daemon=True)
+        self._election_thread.start()
+        
+        # Iniciar elección inicial
+        self._start_election()
+    
+    def stop(self):
+        """Detiene el servicio"""
+        self._running = False
+    
+    def is_leader(self) -> bool:
+        """Verifica si este nodo es el líder actual"""
+        with self._lock:
+            return self._is_leader
+    
+    def get_leader(self) -> Optional[NodeInfo]:
+        """Obtiene información del líder actual"""
+        with self._lock:
+            if self._is_leader:
+                return self.node_info
+            if self._current_leader and self._current_leader in self._peers:
+                return self._peers[self._current_leader]
+            return None
+    
+    def get_leader_id(self) -> Optional[str]:
+        """Obtiene el ID del líder actual"""
+        with self._lock:
+            if self._is_leader:
+                return self.node_id
+            return self._current_leader
+    
+    def get_term(self) -> int:
+        """Obtiene el término actual de elección"""
+        with self._lock:
+            return self._term
+    
+    def handle_election_message(self, message: RPCMessage) -> RPCMessage:
+        """Maneja un mensaje de elección de otro nodo"""
+        sender_id = message.payload.get('node_id')
+        sender_term = message.payload.get('term', 0)
+        
+        with self._lock:
+            if sender_term > self._term:
+                # Hay un término más nuevo, actualizar
+                self._term = sender_term
+                self._is_leader = False
+            
+            # Si nuestro ID es mayor, respondemos que somos candidatos
+            if self.node_id > sender_id:
+                # Iniciar nuestra propia elección
+                threading.Thread(target=self._start_election, daemon=True).start()
+                return RPCMessage(
+                    MessageType.LEADER_ELECTION,
+                    {'node_id': self.node_id, 'term': self._term, 'status': 'HIGHER'},
+                    message.request_id
+                )
+            
+            return RPCMessage(
+                MessageType.LEADER_ELECTION,
+                {'node_id': self.node_id, 'term': self._term, 'status': 'OK'},
+                message.request_id
+            )
+    
+    def handle_leader_announcement(self, message: RPCMessage):
+        """Maneja el anuncio de un nuevo líder"""
+        leader_id = message.payload.get('leader_id')
+        term = message.payload.get('term', 0)
+        
+        with self._lock:
+            if term >= self._term:
+                old_leader = self._current_leader
+                self._term = term
+                self._current_leader = leader_id
+                self._last_leader_heartbeat = time.time()
+                
+                if leader_id == self.node_id:
+                    self._is_leader = True
+                else:
+                    self._is_leader = False
+                
+                if old_leader != leader_id and self.on_leader_change:
+                    threading.Thread(
+                        target=self.on_leader_change,
+                        args=(leader_id,),
+                        daemon=True
+                    ).start()
+                
+                logger.info(f"New leader: {leader_id} (term {term})")
+    
+    def handle_leader_heartbeat(self, message: RPCMessage):
+        """Maneja un heartbeat del líder"""
+        leader_id = message.payload.get('leader_id')
+        term = message.payload.get('term', 0)
+        
+        with self._lock:
+            if leader_id == self._current_leader and term >= self._term:
+                self._last_leader_heartbeat = time.time()
+    
+    def _start_election(self):
+        """Inicia una nueva elección"""
+        with self._lock:
+            self._term += 1
+            current_term = self._term
+            peers_copy = dict(self._peers)
+        
+        logger.info(f"Starting election for term {current_term}")
+        
+        # Enviar mensaje de elección a todos los peers con ID mayor
+        higher_peers = [p for pid, p in peers_copy.items() if pid > self.node_id]
+        
+        if not higher_peers:
+            # Somos el nodo con ID más alto, convertirnos en líder
+            self._become_leader()
+            return
+        
+        # Enviar mensajes de elección
+        responses = []
+        for peer in higher_peers:
+            msg = RPCMessage(
+                MessageType.LEADER_ELECTION,
+                {'node_id': self.node_id, 'term': current_term}
+            )
+            try:
+                response = self._rpc_client.call(peer.host, peer.port, msg)
+                if response:
+                    responses.append(response)
+            except Exception as e:
+                logger.debug(f"Failed to contact peer {peer.node_id}: {e}")
+        
+        # Si no hay respuestas de nodos con ID mayor, convertirnos en líder
+        active_higher = any(
+            r.payload.get('status') == 'HIGHER' for r in responses
+        )
+        
+        if not active_higher:
+            # Esperar un momento por si hay elecciones en curso
+            time.sleep(0.5)
+            with self._lock:
+                if self._term == current_term:  # No hubo cambios
+                    self._become_leader()
+    
+    def _become_leader(self):
+        """Este nodo se convierte en líder"""
+        with self._lock:
+            old_leader = self._current_leader
+            self._current_leader = self.node_id
+            self._is_leader = True
+            peers_copy = dict(self._peers)
+        
+        logger.info(f"Node {self.node_id} became leader (term {self._term})")
+        
+        # Anunciar a todos los peers
+        for peer in peers_copy.values():
+            msg = RPCMessage(
+                MessageType.LEADER_ELECTED,
+                {'leader_id': self.node_id, 'term': self._term}
+            )
+            try:
+                self._rpc_client.call(peer.host, peer.port, msg)
+            except Exception as e:
+                logger.debug(f"Failed to announce leadership to {peer.node_id}: {e}")
+        
+        # Callback
+        if self.on_become_leader:
+            threading.Thread(target=self.on_become_leader, daemon=True).start()
+        
+        if old_leader != self.node_id and self.on_leader_change:
+            threading.Thread(
+                target=self.on_leader_change,
+                args=(self.node_id,),
+                daemon=True
+            ).start()
+    
+    def _election_loop(self):
+        """Loop principal que monitorea el estado del líder"""
+        while self._running:
+            time.sleep(HEARTBEAT_INTERVAL)
+            
+            with self._lock:
+                if self._is_leader:
+                    # Somos el líder, enviar heartbeats
+                    self._send_leader_heartbeats()
+                else:
+                    # Verificar si el líder está vivo
+                    if self._current_leader:
+                        time_since_heartbeat = time.time() - self._last_leader_heartbeat
+                        if time_since_heartbeat > LEADER_ELECTION_TIMEOUT:
+                            logger.warning(f"Leader {self._current_leader} timeout, starting election")
+                            self._start_election()
+    
+    def _send_leader_heartbeats(self):
+        """Envía heartbeats a todos los peers"""
+        with self._lock:
+            peers_copy = dict(self._peers)
+            term = self._term
+        
+        for peer in peers_copy.values():
+            msg = RPCMessage(
+                MessageType.HEARTBEAT,
+                {'leader_id': self.node_id, 'term': term}
+            )
+            try:
+                self._rpc_client.call(peer.host, peer.port, msg)
+            except Exception as e:
+                logger.debug(f"Failed to send heartbeat to {peer.node_id}: {e}")
+    
+    def query_leader(self, peer: NodeInfo) -> Optional[str]:
+        """Consulta a un peer quién es el líder"""
+        msg = RPCMessage(MessageType.LEADER_QUERY, {})
+        try:
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+            if response:
+                return response.payload.get('leader_id')
+        except Exception as e:
+            logger.debug(f"Failed to query leader from {peer.node_id}: {e}")
+        return None
+

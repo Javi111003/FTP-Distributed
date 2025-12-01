@@ -11,3 +11,8 @@ rich>=13.0.0
 
 # Opcional: python-dotenv para cargar variables de entorno desde .env
 python-dotenv>=1.0.0
+
+# Dependencias adicionales para el sistema distribuido
+# (Las siguientes son parte de la librería estándar de Python 3.11)
+# - socket, threading, json, struct, uuid, hashlib, logging, pathlib
+# - concurrent.futures, collections, enum, dataclasses, time, abc
