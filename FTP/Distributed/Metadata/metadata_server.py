@@ -93,6 +93,7 @@ class MetadataServer:
         # Registro de nodos
         self.rpc_server.register_handler(MessageType.REGISTER_NODE, self._handle_register_node)
         self.rpc_server.register_handler(MessageType.UNREGISTER_NODE, self._handle_unregister_node)
+        self.rpc_server.register_handler(MessageType.GET_PEERS, self._handle_get_peers)
         
         # Autenticación
         self.rpc_server.register_handler(MessageType.AUTH_REQUEST, self._handle_auth_request)
@@ -130,6 +131,12 @@ class MetadataServer:
         
         # Iniciar heartbeat manager
         self.heartbeat_manager.start()
+        
+        # Esperar un momento para que el servidor RPC esté listo
+        time.sleep(0.5)
+        
+        # NUEVO: Descubrir y registrarse con otros nodos metadata
+        self._discover_and_register_with_peers()
         
         # Iniciar leader election
         self.leader_election.start()
@@ -246,16 +253,21 @@ class MetadataServer:
                 self.replica_manager.register_storage_node(node)
             elif node.node_type == NodeType.METADATA:
                 self.leader_election.register_peer(node)
+                
+                # AUTO-REGISTRO MUTUO: registrarnos con el peer
+                self._register_with_peer(node)
+                
+                # Compartir todos nuestros peers con el nuevo nodo
+                self._share_peers_with_node(node)
             
             self.heartbeat_manager.register_node(node)
-            
-            # Si es un storage node nuevo, crear directorio home si es necesario
             
             return RPCMessage(
                 MessageType.REGISTER_RESPONSE,
                 {
                     'status': DistributedResponseCode.SUCCESS.value,
-                    'leader_id': self.leader_election.get_leader_id()
+                    'leader_id': self.leader_election.get_leader_id(),
+                    'my_peers': self._get_all_peer_info()  # Enviar lista de peers
                 },
                 msg.request_id
             )
@@ -620,6 +632,110 @@ class MetadataServer:
             {
                 'status': DistributedResponseCode.SUCCESS.value,
                 'updates_needed': updates_needed
+            },
+            msg.request_id
+        )
+
+
+    # === Métodos de descubrimiento y auto-registro ===
+    
+    def _discover_and_register_with_peers(self):
+        """Descubre otros nodos metadata y se registra con ellos"""
+        try:
+            # Intentar registrarse con el servicio metadata de Docker Swarm
+            # El balanceador nos conectará con alguna réplica existente
+            metadata_service = os.getenv('METADATA_SERVICE', 'metadata')
+            
+            logger.info(f"Attempting to discover peers via service '{metadata_service}'")
+            
+            # Intentar registrarse múltiples veces para aumentar chances de descubrir todos
+            for attempt in range(3):
+                try:
+                    msg = RPCMessage(
+                        MessageType.REGISTER_NODE,
+                        {'node': self.node_info.to_dict()}
+                    )
+                    response = self._rpc_client.call(
+                        metadata_service, METADATA_RPC_PORT, msg
+                    )
+                    
+                    if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                        # Procesar peers que nos envió el otro nodo
+                        peers_data = response.payload.get('my_peers', [])
+                        self._register_received_peers(peers_data)
+                        logger.info(f"Discovered {len(peers_data)} peers from metadata service")
+                        
+                    time.sleep(0.5)  # Pequeña pausa entre intentos
+                except Exception as e:
+                    logger.debug(f"Discovery attempt {attempt + 1} failed: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Could not discover peers: {e}")
+    
+    def _register_with_peer(self, peer: NodeInfo):
+        """Se registra con otro nodo metadata para descubrimiento mutuo"""
+        if peer.node_id == self.node_id:
+            return
+        
+        try:
+            msg = RPCMessage(
+                MessageType.REGISTER_NODE,
+                {'node': self.node_info.to_dict()}
+            )
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+            
+            if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                # Procesar peers que nos envió
+                peers_data = response.payload.get('my_peers', [])
+                self._register_received_peers(peers_data)
+                logger.info(f"Successfully registered with peer {peer.node_id}")
+        except Exception as e:
+            logger.debug(f"Could not register with peer {peer.node_id}: {e}")
+    
+    def _share_peers_with_node(self, new_node: NodeInfo):
+        """Comparte todos nuestros peers con un nuevo nodo para crear malla completa"""
+        # Obtener todos nuestros peers (excepto el nuevo nodo)
+        all_peers = self.leader_election._peers.copy()
+        
+        for peer_id, peer in all_peers.items():
+            if peer_id != new_node.node_id:
+                try:
+                    # Informar al peer existente sobre el nuevo nodo
+                    msg = RPCMessage(
+                        MessageType.REGISTER_NODE,
+                        {'node': new_node.to_dict()}
+                    )
+                    self._rpc_client.call(peer.host, peer.port, msg)
+                except Exception as e:
+                    logger.debug(f"Could not share new node with peer {peer_id}: {e}")
+    
+    def _register_received_peers(self, peers_data: List[Dict]):
+        """Registra peers recibidos de otro nodo"""
+        for peer_dict in peers_data:
+            try:
+                peer = NodeInfo.from_dict(peer_dict)
+                if peer.node_id != self.node_id:
+                    self.leader_election.register_peer(peer)
+                    self.heartbeat_manager.register_node(peer)
+            except Exception as e:
+                logger.debug(f"Could not register received peer: {e}")
+    
+    def _get_all_peer_info(self) -> List[Dict]:
+        """Obtiene información de todos los peers como diccionarios"""
+        peers = []
+        for peer in self.leader_election._peers.values():
+            peers.append(peer.to_dict())
+        # También incluirnos a nosotros mismos
+        peers.append(self.node_info.to_dict())
+        return peers
+    
+    def _handle_get_peers(self, msg: RPCMessage) -> RPCMessage:
+        """Maneja solicitudes para obtener lista de peers"""
+        return RPCMessage(
+            MessageType.PEERS_RESPONSE,
+            {
+                'status': DistributedResponseCode.SUCCESS.value,
+                'peers': self._get_all_peer_info()
             },
             msg.request_id
         )
