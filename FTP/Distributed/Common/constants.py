@@ -106,6 +106,10 @@ class MessageType(Enum):
     
     UNREGISTER_NODE = "UNREGISTER_NODE"
     
+    # Descubrimiento de peers
+    GET_PEERS = "GET_PEERS"
+    PEERS_RESPONSE = "PEERS_RESPONSE"
+    
     # Permisos
     CHECK_PERMISSION = "CHECK_PERMISSION"
     PERMISSION_RESPONSE = "PERMISSION_RESPONSE"

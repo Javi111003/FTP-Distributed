@@ -65,8 +65,12 @@ class LeaderElection:
         self._election_thread = threading.Thread(target=self._election_loop, daemon=True)
         self._election_thread.start()
         
-        # Iniciar elección inicial
-        self._start_election()
+        # NO iniciar elección automáticamente
+        # Primero intentar descubrir el líder actual consultando a los peers
+        self._discover_leader()
+        
+        # Solo iniciar elección si no hay líder conocido después de un tiempo
+        threading.Thread(target=self._delayed_election_check, daemon=True).start()
     
     def stop(self):
         """Detiene el servicio"""
@@ -163,6 +167,15 @@ class LeaderElection:
     def _start_election(self):
         """Inicia una nueva elección"""
         with self._lock:
+            # PRIMERO: Verificar si ya hay un líder activo
+            if self._current_leader and self._current_leader != self.node_id:
+                # Hay un líder conocido, verificar si está vivo
+                time_since_heartbeat = time.time() - self._last_leader_heartbeat
+                if time_since_heartbeat < LEADER_ELECTION_TIMEOUT:
+                    # El líder está vivo, no iniciar elección innecesaria
+                    logger.info(f"Leader {self._current_leader} is active, skipping election")
+                    return
+            
             self._term += 1
             current_term = self._term
             peers_copy = dict(self._peers)
@@ -278,4 +291,39 @@ class LeaderElection:
         except Exception as e:
             logger.debug(f"Failed to query leader from {peer.node_id}: {e}")
         return None
+
+def _discover_leader(self):
+    """Intenta descubrir el líder actual consultando a los peers"""
+    with self._lock:
+        peers_copy = dict(self._peers)
+    
+    for peer in peers_copy.values():
+        leader_id = self.query_leader(peer)
+        if leader_id:
+            # Encontramos un líder, actualizar nuestro estado
+            with self._lock:
+                self._current_leader = leader_id
+                self._last_leader_heartbeat = time.time()
+                if leader_id == self.node_id:
+                    self._is_leader = True
+            logger.info(f"Discovered existing leader: {leader_id}")
+            return
+    
+    # No se encontró líder, iniciar elección
+    logger.info("No leader found, starting election")
+    self._start_election()
+
+def _delayed_election_check(self):
+    """Verifica después de un delay si necesitamos iniciar elección"""
+    time.sleep(2)  # Esperar a que otros nodos se registren
+    with self._lock:
+        if not self._current_leader or self._is_leader:
+            # No hay líder o somos el líder, no hacer nada
+            return
+    
+    # Verificar si el líder está vivo
+    time_since_hb = time.time() - self._last_leader_heartbeat
+    if time_since_hb > LEADER_ELECTION_TIMEOUT:
+        logger.info("Leader not responding, starting election")
+        self._start_election()
 
