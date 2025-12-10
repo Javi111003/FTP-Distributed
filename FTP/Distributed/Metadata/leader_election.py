@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class LeaderElection:
     """
     Implementa elección de líder usando un algoritmo bully simplificado.
-    El nodo con el ID más alto se convierte en líder.
+    El nodo con el ID más bajo se convierte en líder.
     """
     
     def __init__(self, node_id: str, node_info: NodeInfo,
@@ -113,13 +113,13 @@ class LeaderElection:
                 self._term = sender_term
                 self._is_leader = False
             
-            # Si nuestro ID es mayor, respondemos que somos candidatos
-            if self.node_id > sender_id:
+            # Si nuestro ID es menor, respondemos que somos candidatos
+            if self.node_id < sender_id:
                 # Iniciar nuestra propia elección
                 threading.Thread(target=self._start_election, daemon=True).start()
                 return RPCMessage(
                     MessageType.LEADER_ELECTION,
-                    {'node_id': self.node_id, 'term': self._term, 'status': 'HIGHER'},
+                    {'node_id': self.node_id, 'term': self._term, 'status': 'LOWER'},
                     message.request_id
                 )
             
@@ -182,17 +182,17 @@ class LeaderElection:
         
         logger.info(f"Starting election for term {current_term}")
         
-        # Enviar mensaje de elección a todos los peers con ID mayor
-        higher_peers = [p for pid, p in peers_copy.items() if pid > self.node_id]
+        # Enviar mensaje de elección a todos los peers con ID menor
+        lower_peers = [p for pid, p in peers_copy.items() if pid < self.node_id]
         
-        if not higher_peers:
-            # Somos el nodo con ID más alto, convertirnos en líder
+        if not lower_peers:
+            # Somos el nodo con ID más bajo, convertirnos en líder
             self._become_leader()
             return
         
         # Enviar mensajes de elección
         responses = []
-        for peer in higher_peers:
+        for peer in lower_peers:
             msg = RPCMessage(
                 MessageType.LEADER_ELECTION,
                 {'node_id': self.node_id, 'term': current_term}
@@ -204,12 +204,12 @@ class LeaderElection:
             except Exception as e:
                 logger.debug(f"Failed to contact peer {peer.node_id}: {e}")
         
-        # Si no hay respuestas de nodos con ID mayor, convertirnos en líder
-        active_higher = any(
-            r.payload.get('status') == 'HIGHER' for r in responses
+        # Si no hay respuestas de nodos con ID menor, convertirnos en líder
+        active_lower = any(
+            r.payload.get('status') == 'LOWER' for r in responses
         )
         
-        if not active_higher:
+        if not active_lower:
             # Esperar un momento por si hay elecciones en curso
             time.sleep(0.5)
             with self._lock:
@@ -292,38 +292,38 @@ class LeaderElection:
             logger.debug(f"Failed to query leader from {peer.node_id}: {e}")
         return None
 
-def _discover_leader(self):
-    """Intenta descubrir el líder actual consultando a los peers"""
-    with self._lock:
-        peers_copy = dict(self._peers)
-    
-    for peer in peers_copy.values():
-        leader_id = self.query_leader(peer)
-        if leader_id:
-            # Encontramos un líder, actualizar nuestro estado
-            with self._lock:
-                self._current_leader = leader_id
-                self._last_leader_heartbeat = time.time()
-                if leader_id == self.node_id:
-                    self._is_leader = True
-            logger.info(f"Discovered existing leader: {leader_id}")
-            return
-    
-    # No se encontró líder, iniciar elección
-    logger.info("No leader found, starting election")
-    self._start_election()
-
-def _delayed_election_check(self):
-    """Verifica después de un delay si necesitamos iniciar elección"""
-    time.sleep(2)  # Esperar a que otros nodos se registren
-    with self._lock:
-        if not self._current_leader or self._is_leader:
-            # No hay líder o somos el líder, no hacer nada
-            return
-    
-    # Verificar si el líder está vivo
-    time_since_hb = time.time() - self._last_leader_heartbeat
-    if time_since_hb > LEADER_ELECTION_TIMEOUT:
-        logger.info("Leader not responding, starting election")
+    def _discover_leader(self):
+        """Intenta descubrir el líder actual consultando a los peers"""
+        with self._lock:
+            peers_copy = dict(self._peers)
+        
+        for peer in peers_copy.values():
+            leader_id = self.query_leader(peer)
+            if leader_id:
+                # Encontramos un líder, actualizar nuestro estado
+                with self._lock:
+                    self._current_leader = leader_id
+                    self._last_leader_heartbeat = time.time()
+                    if leader_id == self.node_id:
+                        self._is_leader = True
+                logger.info(f"Discovered existing leader: {leader_id}")
+                return
+        
+        # No se encontró líder, iniciar elección
+        logger.info("No leader found, starting election")
         self._start_election()
+
+    def _delayed_election_check(self):
+        """Verifica después de un delay si necesitamos iniciar elección"""
+        time.sleep(2)  # Esperar a que otros nodos se registren
+        with self._lock:
+            if not self._current_leader or self._is_leader:
+                # No hay líder o somos el líder, no hacer nada
+                return
+        
+        # Verificar si el líder está vivo
+        time_since_hb = time.time() - self._last_leader_heartbeat
+        if time_since_hb > LEADER_ELECTION_TIMEOUT:
+            logger.info("Leader not responding, starting election")
+            self._start_election()
 

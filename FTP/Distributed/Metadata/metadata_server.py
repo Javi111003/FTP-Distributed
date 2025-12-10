@@ -171,6 +171,20 @@ class MetadataServer:
         """Callback cuando cambia el líder"""
         logger.info(f"Leader changed to: {new_leader_id}")
     
+    def _redirect_to_leader(self, response_type: MessageType, request_id: str) -> RPCMessage:
+        """Redirige al cliente al líder actual"""
+        leader = self.leader_election.get_leader()
+        return RPCMessage(
+            response_type,
+            {
+                'status': DistributedResponseCode.NOT_LEADER.value,
+                'leader_id': self.leader_election.get_leader_id(),
+                'leader_host': leader.host if leader else None,
+                'leader_port': leader.port if leader else None
+            },
+            request_id
+        )
+    
     def _on_node_down(self, node_id: str):
         """Callback cuando un nodo cae"""
         logger.warning(f"Node down: {node_id}")
@@ -300,6 +314,10 @@ class MetadataServer:
     
     def _handle_auth_request(self, msg: RPCMessage) -> RPCMessage:
         """Maneja solicitudes de autenticación"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.AUTH_RESPONSE, msg.request_id)
+        
         username = msg.payload.get('username')
         password = msg.payload.get('password')
         
@@ -318,6 +336,10 @@ class MetadataServer:
     
     def _handle_lookup(self, msg: RPCMessage) -> RPCMessage:
         """Busca un archivo o directorio"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.LOOKUP_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         meta = self.namespace.get_file(path)
         
@@ -346,6 +368,10 @@ class MetadataServer:
     
     def _handle_create_file(self, msg: RPCMessage) -> RPCMessage:
         """Crea un nuevo archivo"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.CREATE_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         owner = msg.payload.get('owner', 'anonymous')
         size = msg.payload.get('size', 0)
@@ -393,6 +419,10 @@ class MetadataServer:
     
     def _handle_delete_file(self, msg: RPCMessage) -> RPCMessage:
         """Elimina un archivo"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.DELETE_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         
         meta = self.namespace.get_file(path)
@@ -428,6 +458,10 @@ class MetadataServer:
     
     def _handle_rename(self, msg: RPCMessage) -> RPCMessage:
         """Renombra un archivo o directorio"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.RENAME_RESPONSE, msg.request_id)
+        
         old_path = msg.payload.get('old_path')
         new_path = msg.payload.get('new_path')
         
@@ -441,6 +475,10 @@ class MetadataServer:
     
     def _handle_list_dir(self, msg: RPCMessage) -> RPCMessage:
         """Lista contenido de un directorio"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.LIST_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         
         code, entries = self.namespace.list_directory(path)
@@ -456,6 +494,10 @@ class MetadataServer:
     
     def _handle_mkdir(self, msg: RPCMessage) -> RPCMessage:
         """Crea un directorio"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.MKDIR_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         owner = msg.payload.get('owner', 'anonymous')
         
@@ -472,6 +514,10 @@ class MetadataServer:
     
     def _handle_rmdir(self, msg: RPCMessage) -> RPCMessage:
         """Elimina un directorio"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.RMDIR_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         recursive = msg.payload.get('recursive', True)
         
@@ -525,6 +571,10 @@ class MetadataServer:
     
     def _handle_update_file_meta(self, msg: RPCMessage) -> RPCMessage:
         """Actualiza metadatos de un archivo"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.UPDATE_META_RESPONSE, msg.request_id)
+        
         path = msg.payload.get('path')
         size = msg.payload.get('size')
         version = msg.payload.get('version')
@@ -545,6 +595,10 @@ class MetadataServer:
     
     def _handle_lock_request(self, msg: RPCMessage) -> RPCMessage:
         """Maneja solicitudes de bloqueo"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.LOCK_RESPONSE, msg.request_id)
+        
         file_id = msg.payload.get('file_id')
         holder_id = msg.payload.get('holder_id')
         lock_type = msg.payload.get('lock_type', 'READ')
@@ -565,6 +619,10 @@ class MetadataServer:
     
     def _handle_unlock_request(self, msg: RPCMessage) -> RPCMessage:
         """Maneja solicitudes de desbloqueo"""
+        # Verificar si somos el líder
+        if not self.leader_election.is_leader():
+            return self._redirect_to_leader(MessageType.UNLOCK_RESPONSE, msg.request_id)
+        
         file_id = msg.payload.get('file_id')
         holder_id = msg.payload.get('holder_id')
         

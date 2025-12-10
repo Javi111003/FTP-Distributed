@@ -2,6 +2,9 @@
 Cliente para comunicarse con el servicio de Metadata.
 """
 import logging
+import socket
+import time
+import threading
 from typing import Dict, Optional, List, Tuple, Any
 
 from ..Common.constants import (
@@ -25,21 +28,127 @@ class MetadataClient:
         self._rpc_client = RPCClient()
         self._leader_host = metadata_host
         self._leader_port = metadata_port
+        
+        # Variables para descubrimiento proactivo del líder
+        self._leader_lock = threading.RLock()
+        self._last_leader_update = 0
+        self._known_metadata_nodes: List[Tuple[str, int]] = []
+        
+        # Iniciar thread de descubrimiento del líder
+        self._leader_discovery_running = True
+        self._discovery_thread = threading.Thread(
+            target=self._leader_discovery_loop,
+            daemon=True
+        )
+        self._discovery_thread.start()
+        logger.info("Leader discovery thread started")
     
-    def _call(self, msg: RPCMessage) -> Optional[RPCMessage]:
-        """Realiza una llamada RPC, siguiendo redirecciones al líder"""
-        response = self._rpc_client.call(self._leader_host, self._leader_port, msg)
+    def _leader_discovery_loop(self):
+        """Loop que descubre el líder periódicamente"""
+        while self._leader_discovery_running:
+            try:
+                # Descubrir todos los nodos metadata disponibles
+                self._discover_metadata_nodes()
+                
+                # Consultar a cada uno para encontrar el líder
+                for host, port in self._known_metadata_nodes:
+                    if self._query_leader(host, port):
+                        break
+                
+                time.sleep(10)  # Esperar 10 segundos antes de volver a consultar
+                
+            except Exception as e:
+                logger.debug(f"Leader discovery loop error: {e}")
+                time.sleep(5)
+    
+    def _discover_metadata_nodes(self):
+        """Resuelve TODAS las IPs del servicio metadata"""
+        try:
+            _, _, ipaddrlist = socket.gethostbyname_ex(self.metadata_host)
+            
+            with self._leader_lock:
+                self._known_metadata_nodes = [
+                    (ip, self.metadata_port) for ip in ipaddrlist
+                ]
+            
+            logger.debug(f"Discovered metadata nodes: {self._known_metadata_nodes}")
+            
+        except socket.gaierror as e:
+            logger.debug(f"Could not resolve metadata host '{self.metadata_host}': {e}")
+            # Fallback: usar el nombre DNS
+            with self._leader_lock:
+                self._known_metadata_nodes = [(self.metadata_host, self.metadata_port)]
+    
+    def _query_leader(self, host: str, port: int) -> bool:
+        """Consulta a un nodo metadata quién es el líder"""
+        try:
+            msg = RPCMessage(MessageType.LEADER_QUERY, {})
+            response = self._rpc_client.call(host, port, msg)
+            
+            if response:
+                leader_host = response.payload.get('leader_host')
+                leader_port = response.payload.get('leader_port')
+                leader_id = response.payload.get('leader_id')
+                
+                if leader_host and leader_port:
+                    with self._leader_lock:
+                        old_leader = self._leader_host
+                        self._leader_host = leader_host
+                        self._leader_port = leader_port
+                        self._last_leader_update = time.time()
+                    
+                    if old_leader != leader_host:
+                        logger.info(f"Leader updated: {leader_id} @ {leader_host}:{leader_port}")
+                    
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Could not query leader from {host}:{port}: {e}")
+            return False
+    
+    def _call(self, msg: RPCMessage, retry_count: int = 2) -> Optional[RPCMessage]:
+        """Realiza una llamada RPC con reintentos y redirecciones al líder"""
+        with self._leader_lock:
+            leader_host = self._leader_host
+            leader_port = self._leader_port
         
-        # Si recibimos una redirección al líder, intentar con el nuevo líder
-        if response and response.payload.get('status') == DistributedResponseCode.NOT_LEADER.value:
-            new_leader_host = response.payload.get('leader_host')
-            new_leader_port = response.payload.get('leader_port')
-            if new_leader_host and new_leader_port:
-                self._leader_host = new_leader_host
-                self._leader_port = new_leader_port
-                return self._rpc_client.call(self._leader_host, self._leader_port, msg)
+        for attempt in range(retry_count):
+            try:
+                response = self._rpc_client.call(leader_host, leader_port, msg)
+                
+                if response:
+                    # Si es NOT_LEADER, extraer IP del líder y reintentar
+                    if response.payload.get('status') == DistributedResponseCode.NOT_LEADER.value:
+                        new_leader_host = response.payload.get('leader_host')
+                        new_leader_port = response.payload.get('leader_port')
+                        
+                        if new_leader_host and new_leader_port:
+                            with self._leader_lock:
+                                self._leader_host = new_leader_host
+                                self._leader_port = new_leader_port
+                                self._last_leader_update = time.time()
+                            
+                            logger.debug(f"Redirected to new leader: {new_leader_host}:{new_leader_port}")
+                            leader_host = new_leader_host
+                            leader_port = new_leader_port
+                            continue
+                    
+                    return response
+                
+                # Sin respuesta, reintentar con backoff exponencial
+                if attempt < retry_count - 1:
+                    backoff = 0.1 * (2 ** attempt)
+                    time.sleep(backoff)
+                
+            except Exception as e:
+                logger.debug(f"RPC call error: {e}")
+                if attempt < retry_count - 1:
+                    time.sleep(0.1 * (2 ** attempt))
         
-        return response
+        logger.error(f"Failed to call leader after {retry_count} attempts")
+        return None
     
     def authenticate(self, username: str, password: str) -> Tuple[bool, Optional[Dict]]:
         """Autentica un usuario"""
