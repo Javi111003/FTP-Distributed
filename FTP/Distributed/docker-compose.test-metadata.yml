@@ -39,6 +39,7 @@ services:
       - ./data/metadata-2:/data/metadata
     depends_on:
       - metadata-1
+    command: sh -c "sleep 3 && python -m Distributed.Metadata.metadata_server"
 
   # Tercer nodo metadata (opcional)
   metadata-3:
@@ -60,6 +61,7 @@ services:
       - ./data/metadata-3:/data/metadata
     depends_on:
       - metadata-1
+    command: sh -c "sleep 5 && python -m Distributed.Metadata.metadata_server"
 
 networks:
   test_net:

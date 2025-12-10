@@ -81,6 +81,8 @@ class MetadataServer:
         # Estado
         self._running = False
         self._rpc_client = RPCClient()
+        self._registered_peers = set()  # Rastrear peers con los que ya nos registramos
+        self._registration_lock = threading.Lock()
     
     def _register_handlers(self):
         """Registra los manejadores RPC"""
@@ -262,17 +264,38 @@ class MetadataServer:
             node_data = msg.payload.get('node')
             node = NodeInfo.from_dict(node_data)
             
+            # Evitar auto-registro
+            if node.node_id == self.node_id:
+                logger.debug(f"Ignoring self-registration attempt")
+                return RPCMessage(
+                    MessageType.REGISTER_RESPONSE,
+                    {'status': DistributedResponseCode.ERROR.value, 'error': 'Cannot register self'},
+                    msg.request_id
+                )
+            
+            # Verificar si ya está registrado
+            already_registered = False
+            if node.node_type == NodeType.METADATA:
+                with self.leader_election._lock:
+                    already_registered = node.node_id in self.leader_election._peers
+            
             # Registrar según tipo
             if node.node_type == NodeType.STORAGE:
                 self.replica_manager.register_storage_node(node)
             elif node.node_type == NodeType.METADATA:
                 self.leader_election.register_peer(node)
                 
-                # AUTO-REGISTRO MUTUO: registrarnos con el peer
-                self._register_with_peer(node)
-                
-                # Compartir todos nuestros peers con el nuevo nodo
-                self._share_peers_with_node(node)
+                # AUTO-REGISTRO MUTUO: solo si NO estamos ya registrados con él
+                if not already_registered:
+                    with self._registration_lock:
+                        if node.node_id not in self._registered_peers:
+                            self._registered_peers.add(node.node_id)
+                            # Hacer registro en thread separado para evitar deadlock
+                            threading.Thread(
+                                target=self._register_with_peer,
+                                args=(node,),
+                                daemon=True
+                            ).start()
             
             self.heartbeat_manager.register_node(node)
             
@@ -701,39 +724,48 @@ class MetadataServer:
         """Descubre otros nodos metadata y se registra con ellos"""
         try:
             # Intentar registrarse con el servicio metadata de Docker Swarm
-            # El balanceador nos conectará con alguna réplica existente
             metadata_service = os.getenv('METADATA_SERVICE', 'metadata')
+            
+            # Si no hay METADATA_SERVICE configurado, somos el primer nodo
+            if not os.getenv('METADATA_SERVICE'):
+                logger.info("No METADATA_SERVICE configured, likely first node")
+                return
             
             logger.info(f"Attempting to discover peers via service '{metadata_service}'")
             
-            # Intentar registrarse múltiples veces para aumentar chances de descubrir todos
-            for attempt in range(3):
-                try:
-                    msg = RPCMessage(
-                        MessageType.REGISTER_NODE,
-                        {'node': self.node_info.to_dict()}
-                    )
-                    response = self._rpc_client.call(
-                        metadata_service, METADATA_RPC_PORT, msg
-                    )
+            # Intentar solo UNA VEZ - el peer nos compartirá todos sus conocidos
+            try:
+                msg = RPCMessage(
+                    MessageType.REGISTER_NODE,
+                    {'node': self.node_info.to_dict()}
+                )
+                response = self._rpc_client.call(
+                    metadata_service, METADATA_RPC_PORT, msg, timeout=5
+                )
+                
+                if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                    # Procesar peers que nos envió el otro nodo
+                    peers_data = response.payload.get('my_peers', [])
+                    self._register_received_peers(peers_data)
+                    logger.info(f"Successfully discovered {len(peers_data)} peers from metadata service")
+                    return  # Éxito, terminar
                     
-                    if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
-                        # Procesar peers que nos envió el otro nodo
-                        peers_data = response.payload.get('my_peers', [])
-                        self._register_received_peers(peers_data)
-                        logger.info(f"Discovered {len(peers_data)} peers from metadata service")
-                        
-                    time.sleep(0.5)  # Pequeña pausa entre intentos
-                except Exception as e:
-                    logger.debug(f"Discovery attempt {attempt + 1} failed: {e}")
+            except Exception as e:
+                logger.warning(f"Could not discover peers: {e}")
                     
         except Exception as e:
-            logger.warning(f"Could not discover peers: {e}")
+            logger.warning(f"Error in peer discovery: {e}")
     
     def _register_with_peer(self, peer: NodeInfo):
         """Se registra con otro nodo metadata para descubrimiento mutuo"""
         if peer.node_id == self.node_id:
             return
+        
+        # Verificar si ya estamos registrados
+        with self._registration_lock:
+            if peer.node_id in self._registered_peers:
+                logger.debug(f"Already registered with peer {peer.node_id}, skipping")
+                return
         
         try:
             msg = RPCMessage(
@@ -747,25 +779,17 @@ class MetadataServer:
                 peers_data = response.payload.get('my_peers', [])
                 self._register_received_peers(peers_data)
                 logger.info(f"Successfully registered with peer {peer.node_id}")
+                
+                # Marcar como registrado exitosamente
+                with self._registration_lock:
+                    self._registered_peers.add(peer.node_id)
         except Exception as e:
             logger.debug(f"Could not register with peer {peer.node_id}: {e}")
     
     def _share_peers_with_node(self, new_node: NodeInfo):
         """Comparte todos nuestros peers con un nuevo nodo para crear malla completa"""
-        # Obtener todos nuestros peers (excepto el nuevo nodo)
-        all_peers = self.leader_election._peers.copy()
-        
-        for peer_id, peer in all_peers.items():
-            if peer_id != new_node.node_id:
-                try:
-                    # Informar al peer existente sobre el nuevo nodo
-                    msg = RPCMessage(
-                        MessageType.REGISTER_NODE,
-                        {'node': new_node.to_dict()}
-                    )
-                    self._rpc_client.call(peer.host, peer.port, msg)
-                except Exception as e:
-                    logger.debug(f"Could not share new node with peer {peer_id}: {e}")
+        # REMOVIDO - ya no necesario porque enviamos la lista en la respuesta de registro
+        pass
     
     def _register_received_peers(self, peers_data: List[Dict]):
         """Registra peers recibidos de otro nodo"""
@@ -773,8 +797,12 @@ class MetadataServer:
             try:
                 peer = NodeInfo.from_dict(peer_dict)
                 if peer.node_id != self.node_id:
-                    self.leader_election.register_peer(peer)
-                    self.heartbeat_manager.register_node(peer)
+                    # Verificar si ya lo conocemos
+                    with self.leader_election._lock:
+                        if peer.node_id not in self.leader_election._peers:
+                            self.leader_election.register_peer(peer)
+                            self.heartbeat_manager.register_node(peer)
+                            logger.info(f"Registered peer {peer.node_id} from gossip")
             except Exception as e:
                 logger.debug(f"Could not register received peer: {e}")
     

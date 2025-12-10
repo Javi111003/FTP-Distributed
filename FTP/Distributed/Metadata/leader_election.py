@@ -44,7 +44,21 @@ class LeaderElection:
     def register_peer(self, node: NodeInfo):
         """Registra un nodo peer de metadata"""
         with self._lock:
-            if node.node_id != self.node_id and node.node_type == NodeType.METADATA:
+            # Evitar auto-registro
+            if node.node_id == self.node_id:
+                logger.debug(f"Ignoring self-registration attempt in leader election")
+                return
+            
+            # Verificar tipo correcto
+            if node.node_type != NodeType.METADATA:
+                logger.warning(f"Attempted to register non-metadata node {node.node_id} as peer")
+                return
+            
+            # Verificar si ya está registrado
+            if node.node_id in self._peers:
+                logger.debug(f"Peer {node.node_id} already registered, updating info")
+                self._peers[node.node_id] = node
+            else:
                 self._peers[node.node_id] = node
                 logger.info(f"Registered metadata peer: {node.node_id}")
     
