@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Primer nodo metadata
+  metadata-1:
+    image: ftp-metadata:latest
+    container_name: metadata-1
+    hostname: metadata-1
+    environment:
+      - NODE_ID=metadata-1
+      - HOSTNAME=metadata-1
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "5001:5000"  # Exponer para inspección
+    networks:
+      - test_net
+    volumes:
+      - ./data/metadata-1:/data/metadata
+
+  # Segundo nodo metadata (levanta 5 segundos después)
+  metadata-2:
+    image: ftp-metadata:latest
+    container_name: metadata-2
+    hostname: metadata-2
+    environment:
+      - NODE_ID=metadata-2
+      - HOSTNAME=metadata-2
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - PYTHONUNBUFFERED=1
+      - METADATA_SERVICE=metadata-1  # Apunta al primer nodo
+    ports:
+      - "5002:5000"
+    networks:
+      - test_net
+    volumes:
+      - ./data/metadata-2:/data/metadata
+    depends_on:
+      - metadata-1
+
+  # Tercer nodo metadata (opcional)
+  metadata-3:
+    image: ftp-metadata:latest
+    container_name: metadata-3
+    hostname: metadata-3
+    environment:
+      - NODE_ID=metadata-3
+      - HOSTNAME=metadata-3
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - PYTHONUNBUFFERED=1
+      - METADATA_SERVICE=metadata-1
+    ports:
+      - "5003:5000"
+    networks:
+      - test_net
+    volumes:
+      - ./data/metadata-3:/data/metadata
+    depends_on:
+      - metadata-1
+
+networks:
+  test_net:
+    driver: bridge
