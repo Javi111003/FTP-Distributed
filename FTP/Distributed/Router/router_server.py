@@ -602,12 +602,16 @@ class RouterServer:
         success, meta, storage_nodes = self.metadata_client.create_file(
             path, session.username
         )
-        
+
         if not success:
+            logger.error(f"Failed to create file in metadata: {path}")
             return "550 Could not create file\r\n"
-        
+
         if not storage_nodes:
+            logger.error(f"No storage nodes available for file: {path}")
             return "550 No storage nodes available\r\n"
+
+        logger.info(f"Created file {path} with file_id {meta.get('file_id')}, storage_nodes: {storage_nodes}")
         
         if not self._create_data_connection(session):
             return "425 No data connection\r\n"
@@ -628,16 +632,21 @@ class RouterServer:
             
             # Almacenar en nodos de storage
             file_id = meta.get('file_id')
+            logger.info(f"Storing file {file_id} with {len(data)} bytes to {len(storage_nodes)} storage nodes")
+
             stored = self.storage_client.store_with_replication(
                 storage_nodes, file_id, data
             )
-            
+
+            logger.info(f"Storage result: {stored} replicas stored")
+
             if stored > 0:
                 # Actualizar tamaño en metadata
                 self.metadata_client.update_file_meta(path, size=len(data))
                 logger.info(f"[session={session.session_id}] STOR path={path} size={len(data)} replicas={stored}")
                 return "226 Transfer complete\r\n"
-            
+
+            logger.error(f"Failed to store file {file_id} to any storage node")
             return "550 Could not store file\r\n"
             
         except Exception as e:

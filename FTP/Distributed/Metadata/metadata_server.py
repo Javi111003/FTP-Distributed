@@ -256,7 +256,97 @@ class MetadataServer:
         self.lock_manager.release_all_locks(node_id)
         # Actualizar estado de réplicas
         self.replica_manager.update_node_state(node_id, NodeState.DOWN)
-    
+
+        # Si es un storage node, ejecutar rebalanceo automático
+        if node_id.startswith('storage-'):
+            logger.info(f"Storage node {node_id} failed, starting automatic rebalance...")
+            rebalance_ops = self.replica_manager.rebalance_after_storage_failure(node_id)
+            if rebalance_ops:
+                logger.info(f"Executing {len(rebalance_ops)} rebalance operations for failed storage {node_id}")
+                self._execute_rebalance_operations(rebalance_ops)
+            else:
+                logger.info(f"No rebalance operations needed for failed storage {node_id}")
+
+    def _execute_rebalance_operations(self, rebalance_ops: List[Tuple[str, str]]):
+        """
+        Ejecuta las operaciones de rebalanceo copiando archivos entre storages.
+        rebalance_ops: Lista de (file_id, target_node_id)
+        """
+        for file_id, target_node_id in rebalance_ops:
+            try:
+                # Obtener información de la réplica objetivo
+                target_node = self.replica_manager.get_storage_node(target_node_id)
+                if not target_node:
+                    logger.error(f"Target node {target_node_id} not found for rebalance of {file_id}")
+                    continue
+
+                # Intentar recuperar el archivo de cualquier réplica activa disponible
+                replicas = self.replica_manager.get_replicas(file_id)
+                active_replicas = [
+                    r for r in replicas
+                    if r.node_id in self._storage_nodes
+                    and self._storage_nodes[r.node_id].state == NodeState.UP
+                    and r.node_id != target_node_id  # No copiar de sí mismo
+                ]
+
+                if not active_replicas:
+                    logger.error(f"No active replicas available for rebalance of {file_id}")
+                    continue
+
+                # Intentar copiar desde la primera réplica activa
+                source_replica = active_replicas[0]
+                source_node = self.replica_manager.get_storage_node(source_replica.node_id)
+
+                if not source_node:
+                    logger.error(f"Source node {source_replica.node_id} not found for rebalance of {file_id}")
+                    continue
+
+                # Recuperar el archivo del source
+                from ..Common.rpc_protocol import RPCClient, RPCMessage
+                from ..Common.constants import MessageType
+
+                rpc_client = RPCClient()
+                retrieve_msg = RPCMessage(MessageType.RETRIEVE_FILE, {'file_id': file_id})
+                response = rpc_client.call(source_node.host, source_node.port, retrieve_msg)
+
+                if not response or response.payload.get('status') != 0:
+                    logger.error(f"Failed to retrieve {file_id} from {source_node.node_id}")
+                    continue
+
+                # Obtener los datos
+                data_hex = response.payload.get('data')
+                if not data_hex:
+                    logger.error(f"No data received for {file_id} from {source_node.node_id}")
+                    continue
+
+                data = bytes.fromhex(data_hex)
+
+                # Almacenar en el target
+                store_msg = RPCMessage(
+                    MessageType.STORE_FILE,
+                    {
+                        'file_id': file_id,
+                        'data': data.hex(),
+                        'version': source_replica.version,
+                        'replicate_to': []  # No replicar más
+                    }
+                )
+                store_response = rpc_client.call(target_node.host, target_node.port, store_msg)
+
+                if store_response and store_response.payload.get('status') == 0:
+                    # Actualizar el estado de réplicas en memoria
+                    self.replica_manager.apply_replicas_state(file_id, [
+                        {'node_id': r.node_id, 'version': r.version, 'size': r.size}
+                        for r in active_replicas
+                    ] + [{'node_id': target_node_id, 'version': source_replica.version, 'size': len(data)}])
+
+                    logger.info(f"Successfully rebalanced {file_id} to {target_node_id}")
+                else:
+                    logger.error(f"Failed to store {file_id} on {target_node_id}")
+
+            except Exception as e:
+                logger.error(f"Error during rebalance of {file_id} to {target_node_id}: {e}")
+
     def _on_node_up(self, node_id: str):
         """Callback cuando un nodo se recupera"""
         logger.info(f"Node recovered: {node_id}")

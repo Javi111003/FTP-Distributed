@@ -285,7 +285,85 @@ class ReplicaManager:
                             break
             
             return moves
-    
+
+    def get_under_replicated_files(self) -> List[str]:
+        """Obtiene archivos que tienen menos réplicas de las necesarias"""
+        with self._lock:
+            under_replicated = []
+            for file_id, replicas in self._replicas.items():
+                # Contar réplicas en nodos activos
+                active_replicas = sum(
+                    1 for r in replicas
+                    if r.node_id in self._storage_nodes
+                    and self._storage_nodes[r.node_id].state == NodeState.UP
+                )
+                if active_replicas < self.replication_factor:
+                    under_replicated.append((file_id, active_replicas))
+            return under_replicated
+
+    def recover_missing_replicas(self) -> List[Tuple[str, str]]:
+        """
+        Identifica archivos subreplicados y planifica recuperación.
+        Retorna lista de (file_id, target_node_id) para nuevas réplicas.
+        """
+        with self._lock:
+            recoveries = []
+            available_nodes = self.get_available_storage_nodes()
+
+            if len(available_nodes) < 1:
+                return recoveries
+
+            under_replicated = self.get_under_replicated_files()
+
+            for file_id, current_count in under_replicated:
+                existing_nodes = {r.node_id for r in self._replicas.get(file_id, [])}
+                needed = self.replication_factor - current_count
+
+                for node in available_nodes[:needed]:
+                    if node.node_id not in existing_nodes:
+                        recoveries.append((file_id, node.node_id))
+                        existing_nodes.add(node.node_id)
+
+            return recoveries
+
+    def rebalance_after_storage_failure(self, failed_node_id: str) -> List[Tuple[str, str]]:
+        """
+        Rebalancea archivos después de que un storage falla.
+        Retorna lista de (file_id, new_node_id) para nuevas réplicas.
+        """
+        with self._lock:
+            rebalances = []
+            available_nodes = [n for n in self.get_available_storage_nodes()
+                             if n.node_id != failed_node_id]
+
+            if len(available_nodes) < 1:
+                return rebalances
+
+            # Encontrar archivos que tenían réplicas en el nodo fallido
+            affected_files = set()
+            for file_id, replicas in self._replicas.items():
+                if any(r.node_id == failed_node_id for r in replicas):
+                    affected_files.add(file_id)
+
+            for file_id in affected_files:
+                # Verificar si necesita rebalanceo
+                active_replicas = [
+                    r for r in self._replicas.get(file_id, [])
+                    if r.node_id in self._storage_nodes
+                    and self._storage_nodes[r.node_id].state == NodeState.UP
+                ]
+
+                if len(active_replicas) < self.replication_factor:
+                    existing_nodes = {r.node_id for r in active_replicas}
+                    needed = self.replication_factor - len(active_replicas)
+
+                    for node in available_nodes[:needed]:
+                        if node.node_id not in existing_nodes:
+                            rebalances.append((file_id, node.node_id))
+                            existing_nodes.add(node.node_id)
+
+            return rebalances
+
     def export_state(self) -> Dict:
         """Exporta el estado para persistencia o sincronización"""
         with self._lock:
