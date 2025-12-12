@@ -55,3 +55,4 @@ FTP/Downloads/
 FTP/Server/Auth/credentials.enc
 FTP/Server/Auth/secret.key
 report/img/
+/pylintrc

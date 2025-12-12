@@ -33,6 +33,7 @@ class HeartbeatManager:
         self._nodes: Dict[str, NodeInfo] = {}
         self._last_heartbeat: Dict[str, float] = {}
         self._suspect_nodes: Set[str] = set()
+        self._recovery_count: Dict[str, int] = {}  # Contar heartbeats para confirmar recuperación
         
         self._running = False
         self._check_thread: Optional[threading.Thread] = None
@@ -60,27 +61,31 @@ class HeartbeatManager:
         with self._lock:
             self._last_heartbeat[node_id] = time.time()
             
-            # Si el nodo estaba sospechoso o caído, marcarlo como recuperado
-            if node_id in self._suspect_nodes:
-                self._suspect_nodes.remove(node_id)
-                if node_id in self._nodes:
-                    self._nodes[node_id].state = NodeState.UP
-                    if self.on_node_up:
-                        threading.Thread(
-                            target=self.on_node_up,
-                            args=(node_id,),
-                            daemon=True
-                        ).start()
-                logger.info(f"Node {node_id} recovered")
-            elif node_id in self._nodes and self._nodes[node_id].state == NodeState.DOWN:
-                self._nodes[node_id].state = NodeState.UP
-                if self.on_node_up:
-                    threading.Thread(
-                        target=self.on_node_up,
-                        args=(node_id,),
-                        daemon=True
-                    ).start()
-                logger.info(f"Node {node_id} is back UP")
+            # Si el nodo estaba sospechoso o caído, incrementar contador de recuperación
+            if node_id in self._suspect_nodes or (node_id in self._nodes and self._nodes[node_id].state == NodeState.DOWN):
+                # Requerir múltiples heartbeats exitosos antes de marcar como recuperado
+                self._recovery_count[node_id] = self._recovery_count.get(node_id, 0) + 1
+                
+                if self._recovery_count[node_id] >= 3:  # Requerir 3 heartbeats consecutivos
+                    if node_id in self._suspect_nodes:
+                        self._suspect_nodes.remove(node_id)
+                    
+                    if node_id in self._nodes:
+                        old_state = self._nodes[node_id].state
+                        self._nodes[node_id].state = NodeState.UP
+                        
+                        if old_state != NodeState.UP and self.on_node_up:
+                            threading.Thread(
+                                target=self.on_node_up,
+                                args=(node_id,),
+                                daemon=True
+                            ).start()
+                        logger.info(f"Node {node_id} recovered after {self._recovery_count[node_id]} heartbeats")
+                    
+                    self._recovery_count[node_id] = 0  # Reset contador
+            else:
+                # Nodo sano, resetear contador de recuperación
+                self._recovery_count[node_id] = 0
     
     def start(self):
         """Inicia el servicio de heartbeat"""
@@ -128,13 +133,16 @@ class HeartbeatManager:
             with self._lock:
                 last_hb = self._last_heartbeat.get(node_id, 0)
                 time_since_hb = now - last_hb
+                recovery_count = self._recovery_count.get(node_id, 0)
             
             if time_since_hb > HEARTBEAT_TIMEOUT:
                 # Nodo no responde
                 self._handle_node_timeout(node_id, node)
             elif time_since_hb > HEARTBEAT_TIMEOUT / 2:
-                # Nodo sospechoso
-                self._handle_node_suspect(node_id, node)
+                # Solo marcar como sospechoso si está UP y NO está en proceso de recuperación
+                with self._lock:
+                    if node.state == NodeState.UP and recovery_count == 0:
+                        self._handle_node_suspect(node_id, node)
     
     def _handle_node_suspect(self, node_id: str, node: NodeInfo):
         """Maneja un nodo sospechoso"""
@@ -142,6 +150,7 @@ class HeartbeatManager:
             if node_id not in self._suspect_nodes and node.state == NodeState.UP:
                 self._suspect_nodes.add(node_id)
                 node.state = NodeState.SUSPECT
+                self._recovery_count[node_id] = 0  # Reset contador de recuperación
                 logger.warning(f"Node {node_id} is suspect (no heartbeat)")
                 
                 if self.on_node_suspect:
@@ -157,6 +166,7 @@ class HeartbeatManager:
             if node.state != NodeState.DOWN:
                 node.state = NodeState.DOWN
                 self._suspect_nodes.discard(node_id)
+                self._recovery_count[node_id] = 0  # Reset contador de recuperación
                 logger.error(f"Node {node_id} is DOWN (heartbeat timeout)")
                 
                 if self.on_node_down:
@@ -171,11 +181,13 @@ class HeartbeatManager:
         try:
             msg = RPCMessage(
                 MessageType.HEARTBEAT,
-                {'timestamp': time.time()}
+                {'node_id': target_node.node_id, 'timestamp': time.time()}
             )
             response = self._rpc_client.call(target_node.host, target_node.port, msg)
             return response is not None
         except Exception as e:
-            logger.debug(f"Failed to send heartbeat to {target_node.node_id}: {e}")
+            # Solo log de errores que no sean de resolución de nombres
+            if "Temporary failure in name resolution" not in str(e):
+                logger.debug(f"Failed to send heartbeat to {target_node.node_id}: {e}")
             return False
 
