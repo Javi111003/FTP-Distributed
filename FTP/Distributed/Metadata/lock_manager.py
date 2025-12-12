@@ -236,3 +236,52 @@ class LockManager:
         """Detiene el thread de limpieza"""
         self._cleanup_running = False
 
+    # === Snapshot / replicación ===
+
+    def export_state(self) -> Dict:
+        """Exporta bloqueos actuales (solo los no expirados)"""
+        with self._lock:
+            # Limpiar expirados antes de exportar
+            for fid in list(self._write_locks.keys()):
+                if self._write_locks[fid].is_expired():
+                    del self._write_locks[fid]
+            for fid in list(self._read_locks.keys()):
+                for holder_id in list(self._read_locks[fid]):
+                    lock_key = (fid, holder_id)
+                    if lock_key in self._read_lock_info and self._read_lock_info[lock_key].is_expired():
+                        self._read_locks[fid].discard(holder_id)
+                        del self._read_lock_info[lock_key]
+                if not self._read_locks.get(fid):
+                    self._read_locks.pop(fid, None)
+
+            return {
+                'write_locks': {fid: lock.to_dict() for fid, lock in self._write_locks.items()},
+                'read_locks': {
+                    fid: [self._read_lock_info[(fid, holder)].to_dict()
+                          for holder in holders
+                          if (fid, holder) in self._read_lock_info]
+                    for fid, holders in self._read_locks.items()
+                }
+            }
+
+    def import_state(self, state: Dict):
+        """Restaura bloqueos desde un snapshot"""
+        with self._lock:
+            self._write_locks.clear()
+            self._read_locks.clear()
+            self._read_lock_info.clear()
+
+            for fid, lock_dict in state.get('write_locks', {}).items():
+                lock = LockInfo.from_dict(lock_dict)
+                if not lock.is_expired():
+                    self._write_locks[fid] = lock
+
+            for fid, lock_list in state.get('read_locks', {}).items():
+                for lock_dict in lock_list:
+                    lock = LockInfo.from_dict(lock_dict)
+                    if lock.is_expired():
+                        continue
+                    holder = lock.holder
+                    self._read_locks[fid].add(holder)
+                    self._read_lock_info[(fid, holder)] = lock
+

@@ -16,7 +16,7 @@ MIN_REPLICAS_FOR_WRITE = 2  # Mínimo de réplicas confirmadas para éxito
 
 # Timeouts (en segundos)
 HEARTBEAT_INTERVAL = 5
-HEARTBEAT_TIMEOUT = 15
+HEARTBEAT_TIMEOUT = 30
 RPC_TIMEOUT = 10
 LEADER_ELECTION_TIMEOUT = 10
 SYNC_TIMEOUT = 60
@@ -117,6 +117,13 @@ class MessageType(Enum):
     UPDATE_FILE_META = "UPDATE_FILE_META"
     UPDATE_META_RESPONSE = "UPDATE_META_RESPONSE"
 
+    # Replicación de metadata
+    REPL_APPEND = "REPL_APPEND"
+    REPL_APPEND_RESPONSE = "REPL_APPEND_RESPONSE"
+    REPL_SNAPSHOT = "REPL_SNAPSHOT"
+    REPL_SNAPSHOT_RESPONSE = "REPL_SNAPSHOT_RESPONSE"
+    REPL_REDIRECT = "REPL_REDIRECT"
+
 # Tipos de bloqueo
 class LockType(Enum):
     READ = "READ"
@@ -147,4 +154,6 @@ class DistributedResponseCode(IntEnum):
     LEADER_REDIRECT = 9
     NOT_LEADER = 10
     SYNC_REQUIRED = 11
+    LOG_STALE = 12
+    LOG_CONFLICT = 13
 

@@ -2,19 +2,20 @@
 Servidor principal del servicio de Metadata.
 Coordina todos los subcomponentes y expone la API RPC.
 """
+import json
 import os
 import time
 import uuid
 import logging
 import threading
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Tuple
 
 from ..Common.constants import (
     METADATA_RPC_PORT, MessageType, NodeType, NodeState,
     DistributedResponseCode, REPLICATION_FACTOR
 )
 from ..Common.rpc_protocol import RPCServer, RPCMessage, RPCClient
-from ..Common.models import NodeInfo, FileMetadata
+from ..Common.models import NodeInfo, FileMetadata, ReplicaInfo, LockInfo
 
 from .namespace import FileSystemNamespace
 from .lock_manager import LockManager
@@ -38,6 +39,8 @@ class MetadataServer:
         self.host = host
         self.port = port
         self.data_dir = data_dir
+        self.log_path = f"{data_dir}/oplog.jsonl"
+        self.snapshot_path = f"{data_dir}/snapshot.json"
         
         # Generar ID único para este nodo
         self.node_id = os.getenv('NODE_ID', f"metadata-{uuid.uuid4().hex[:8]}")
@@ -83,6 +86,12 @@ class MetadataServer:
         self._rpc_client = RPCClient()
         self._registered_peers = set()  # Rastrear peers con los que ya nos registramos
         self._registration_lock = threading.Lock()
+        self._log_lock = threading.RLock()
+        self._oplog: List[Dict[str, Any]] = []
+        self._commit_index = -1
+        self._last_applied = -1
+        self._applied_ops = set()
+        self._current_term = 0
     
     def _register_handlers(self):
         """Registra los manejadores RPC"""
@@ -123,10 +132,18 @@ class MetadataServer:
         # Sincronización
         self.rpc_server.register_handler(MessageType.SYNC_REQUEST, self._handle_sync_request)
         self.rpc_server.register_handler(MessageType.FILE_VERSION_LIST, self._handle_version_list)
+        
+        # Replicación interna de metadata
+        self.rpc_server.register_handler(MessageType.REPL_APPEND, self._handle_repl_append)
+        self.rpc_server.register_handler(MessageType.REPL_SNAPSHOT, self._handle_repl_snapshot)
+        self.rpc_server.register_handler(MessageType.REPL_REDIRECT, self._handle_repl_redirect)
     
     def start(self):
         """Inicia el servidor de metadata"""
         self._running = True
+        
+        # Cargar estado persistido (snapshot + log)
+        self._load_persistent_state()
         
         # Iniciar RPC server
         self.rpc_server.start()
@@ -176,16 +193,24 @@ class MetadataServer:
     def _redirect_to_leader(self, response_type: MessageType, request_id: str) -> RPCMessage:
         """Redirige al cliente al líder actual"""
         leader = self.leader_election.get_leader()
+        leader_id = self.leader_election.get_leader_id()
+        leader_host = leader.host if leader else None
+        leader_port = leader.port if leader else None
         return RPCMessage(
             response_type,
             {
                 'status': DistributedResponseCode.NOT_LEADER.value,
-                'leader_id': self.leader_election.get_leader_id(),
-                'leader_host': leader.host if leader else None,
-                'leader_port': leader.port if leader else None
+                'leader_id': leader_id,
+                'leader_host': leader_host,
+                'leader_port': leader_port
             },
             request_id
         )
+    
+    def get_leader_contact(self) -> Tuple[Optional[str], Optional[int]]:
+        """Expone host/puerto del líder actual para otras capas"""
+        leader = self.leader_election.get_leader()
+        return (leader.host, leader.port) if leader else (None, None)
     
     def _on_node_down(self, node_id: str):
         """Callback cuando un nodo cae"""
@@ -417,8 +442,20 @@ class MetadataServer:
         
         if code == DistributedResponseCode.SUCCESS and meta:
             # Asignar réplicas
-            self.replica_manager.assign_replicas(
+            replicas = self.replica_manager.assign_replicas(
                 meta.file_id, selected_nodes, size
+            )
+            storage_nodes = [
+                {'host': n.host, 'port': n.port, 'node_id': n.node_id}
+                for n in selected_nodes
+            ]
+            self._replicate_operation(
+                "create_file",
+                {
+                    'metadata': meta.to_dict(),
+                    'replicas': [r.to_dict() for r in replicas],
+                    'storage_nodes': storage_nodes
+                }
             )
             
             return RPCMessage(
@@ -426,10 +463,7 @@ class MetadataServer:
                 {
                     'status': code.value,
                     'metadata': meta.to_dict(),
-                    'storage_nodes': [
-                        {'host': n.host, 'port': n.port, 'node_id': n.node_id}
-                        for n in selected_nodes
-                    ]
+                    'storage_nodes': storage_nodes
                 },
                 msg.request_id
             )
@@ -465,6 +499,13 @@ class MetadataServer:
         if code == DistributedResponseCode.SUCCESS:
             # Eliminar réplicas del gestor
             self.replica_manager.remove_all_replicas(meta.file_id)
+            self._replicate_operation(
+                "delete_file",
+                {
+                    'path': path,
+                    'file_id': meta.file_id
+                }
+            )
         
         return RPCMessage(
             MessageType.DELETE_RESPONSE,
@@ -489,6 +530,8 @@ class MetadataServer:
         new_path = msg.payload.get('new_path')
         
         code = self.namespace.rename(old_path, new_path)
+        if code == DistributedResponseCode.SUCCESS:
+            self._replicate_operation("rename", {'old_path': old_path, 'new_path': new_path})
         
         return RPCMessage(
             MessageType.RENAME_RESPONSE,
@@ -526,6 +569,9 @@ class MetadataServer:
         
         code, meta = self.namespace.create_directory(path, owner)
         
+        if code == DistributedResponseCode.SUCCESS and meta:
+            self._replicate_operation("mkdir", {'metadata': meta.to_dict()})
+        
         return RPCMessage(
             MessageType.MKDIR_RESPONSE,
             {
@@ -545,6 +591,8 @@ class MetadataServer:
         recursive = msg.payload.get('recursive', True)
         
         code = self.namespace.delete_directory(path, recursive)
+        if code == DistributedResponseCode.SUCCESS:
+            self._replicate_operation("rmdir", {'path': path, 'recursive': recursive})
         
         return RPCMessage(
             MessageType.RMDIR_RESPONSE,
@@ -610,6 +658,12 @@ class MetadataServer:
         else:
             code = DistributedResponseCode.ERROR
         
+        if code == DistributedResponseCode.SUCCESS:
+            self._replicate_operation(
+                "update_file_meta",
+                {'path': path, 'size': size, 'version': version, 'replicas': replicas}
+            )
+        
         return RPCMessage(
             MessageType.UPDATE_META_RESPONSE,
             {'status': code.value},
@@ -630,6 +684,14 @@ class MetadataServer:
             code, lock_info = self.lock_manager.acquire_write_lock(file_id, holder_id)
         else:
             code, lock_info = self.lock_manager.acquire_read_lock(file_id, holder_id)
+
+        if code == DistributedResponseCode.SUCCESS and lock_info:
+            self._replicate_operation(
+                "lock_acquire",
+                {
+                    'lock': lock_info.to_dict()
+                }
+            )
         
         return RPCMessage(
             MessageType.LOCK_RESPONSE,
@@ -650,6 +712,11 @@ class MetadataServer:
         holder_id = msg.payload.get('holder_id')
         
         code = self.lock_manager.release_lock(file_id, holder_id)
+        if code == DistributedResponseCode.SUCCESS:
+            self._replicate_operation(
+                "lock_release",
+                {'file_id': file_id, 'holder_id': holder_id}
+            )
         
         return RPCMessage(
             MessageType.UNLOCK_RESPONSE,
@@ -718,6 +785,314 @@ class MetadataServer:
         )
 
 
+    # === Replicación de metadata (log + snapshot) ===
+
+    def _load_persistent_state(self):
+        """Carga snapshot y log al iniciar"""
+        try:
+            if os.path.exists(self.snapshot_path):
+                with open(self.snapshot_path, 'r') as f:
+                    snapshot = json.load(f)
+                    self._install_snapshot(snapshot)
+                    self._commit_index = snapshot.get('commit_index', -1)
+                    self._last_applied = self._commit_index
+                    logger.info(f"Snapshot loaded up to index {self._commit_index}")
+        except Exception as e:
+            logger.warning(f"Could not load snapshot: {e}")
+
+        try:
+            if os.path.exists(self.log_path):
+                with open(self.log_path, 'r') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        entry = json.loads(line)
+                        self._oplog.append(entry)
+                for entry in self._oplog:
+                    if entry.get('index', -1) > self._last_applied:
+                        self._apply_log_entry(entry, persist=False)
+                        self._last_applied = entry['index']
+                self._commit_index = max(self._commit_index, self._last_applied)
+                if self._oplog:
+                    self._current_term = max(self._current_term, self._oplog[-1].get('term', 0))
+                logger.info(f"Loaded {len(self._oplog)} log entries from disk")
+        except Exception as e:
+            logger.warning(f"Could not load log: {e}")
+
+    def _append_log_entry(self, entry: Dict[str, Any]):
+        """Añade entrada al log en memoria y disco"""
+        with self._log_lock:
+            self._oplog.append(entry)
+            os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+            with open(self.log_path, 'a') as f:
+                f.write(json.dumps(entry) + "\n")
+
+    def _apply_log_entry(self, entry: Dict[str, Any], persist: bool = True):
+        """Aplica una entrada del log al estado local"""
+        op_id = entry.get('op_id')
+        if op_id and op_id in self._applied_ops:
+            return
+        self._apply_operation(entry.get('op_type'), entry.get('payload', {}))
+        if op_id:
+            self._applied_ops.add(op_id)
+        if persist:
+            self._last_applied = max(self._last_applied, entry.get('index', -1))
+            self._commit_index = max(self._commit_index, self._last_applied)
+
+    def _apply_operation(self, op_type: str, payload: Dict[str, Any]):
+        """Aplica una operación de log de forma idempotente"""
+        if not op_type:
+            return
+
+        if op_type == "mkdir":
+            meta_dict = payload.get('metadata')
+            if meta_dict:
+                meta = FileMetadata.from_dict(meta_dict)
+                self.namespace.upsert_entry(meta)
+
+        elif op_type == "create_file":
+            meta_dict = payload.get('metadata')
+            replicas = payload.get('replicas', [])
+            storage_nodes = payload.get('storage_nodes', [])
+            if meta_dict:
+                meta = FileMetadata.from_dict(meta_dict)
+                self.namespace.upsert_entry(meta)
+                self._apply_storage_nodes(storage_nodes)
+                self.replica_manager.apply_replicas_state(meta.file_id, replicas)
+
+        elif op_type == "delete_file":
+            path = payload.get('path')
+            file_id = payload.get('file_id')
+            if path:
+                self.namespace.delete_file(path)
+            if file_id:
+                self.replica_manager.remove_all_replicas(file_id)
+
+        elif op_type == "rename":
+            self.namespace.rename(payload.get('old_path'), payload.get('new_path'))
+
+        elif op_type == "rmdir":
+            self.namespace.delete_directory(payload.get('path'), payload.get('recursive', True))
+
+        elif op_type == "update_file_meta":
+            path = payload.get('path')
+            size = payload.get('size')
+            version = payload.get('version')
+            replicas = payload.get('replicas')
+            if size is not None:
+                self.namespace.update_file_size(path, size, version)
+            if replicas is not None:
+                self.namespace.update_file_replicas(path, replicas)
+
+        elif op_type == "lock_acquire":
+            lock_dict = payload.get('lock')
+            if lock_dict:
+                lock = LockInfo.from_dict(lock_dict)
+                with self.lock_manager._lock:
+                    if lock.lock_type == 'WRITE':
+                        self.lock_manager._write_locks[lock.file_id] = lock
+                    else:
+                        self.lock_manager._read_locks[lock.file_id].add(lock.holder)
+                        self.lock_manager._read_lock_info[(lock.file_id, lock.holder)] = lock
+
+        elif op_type == "lock_release":
+            self.lock_manager.release_lock(payload.get('file_id'), payload.get('holder_id'))
+
+    def _apply_storage_nodes(self, storage_nodes: List[Dict[str, Any]]):
+        """Registra nodos de storage incluidos en replicación"""
+        for n in storage_nodes or []:
+            try:
+                node = NodeInfo.from_dict({
+                    **n,
+                    'node_type': NodeType.STORAGE.value,
+                    'state': n.get('state', NodeState.UP.value)
+                })
+                self.replica_manager.register_storage_node(node)
+            except Exception:
+                # En caso de datos incompletos, ignorar
+                continue
+
+    def _create_log_entry(self, op_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self._log_lock:
+            next_index = len(self._oplog)
+        return {
+            'index': next_index,
+            'term': self.leader_election.get_term(),
+            'op_type': op_type,
+            'payload': payload,
+            'op_id': payload.get('op_id') or str(uuid.uuid4())
+        }
+
+    def _replicate_operation(self, op_type: str, payload: Dict[str, Any]) -> bool:
+        """Replica operación a followers y actualiza commit"""
+        entry = self._create_log_entry(op_type, payload)
+        self._append_log_entry(entry)
+        self._apply_log_entry(entry)  # Aplicar en líder inmediatamente
+
+        peers = list(self.leader_election._peers.values())
+        if not peers:
+            self._commit_index = entry['index']
+            return True
+
+        quorum = (len(peers) + 1) // 2 + 1
+        success = 1  # Contar al líder
+
+        for peer in peers:
+            if peer.node_id == self.node_id:
+                continue
+            if self._send_append_to_peer(peer, entry):
+                success += 1
+
+        if success >= quorum:
+            self._commit_index = entry['index']
+            return True
+
+        logger.warning(f"Commit quorum not reached for entry {entry['index']} (acks={success}/{quorum})")
+        return False
+
+    def _send_append_to_peer(self, peer: NodeInfo, entry: Dict[str, Any]) -> bool:
+        msg = RPCMessage(
+            MessageType.REPL_APPEND,
+            {
+                'leader_id': self.node_id,
+                'entry': entry,
+                'commit_index': self._commit_index
+            }
+        )
+        try:
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+            if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                return True
+            if response and response.payload.get('status') == DistributedResponseCode.SYNC_REQUIRED.value:
+                # Enviar snapshot y considerar ack si instala
+                if self._send_snapshot_to_peer(peer):
+                    return True
+        except Exception as e:
+            logger.debug(f"Append failed to {peer.node_id}: {e}")
+        return False
+
+    def _send_snapshot_to_peer(self, peer: NodeInfo) -> bool:
+        snapshot = self._create_snapshot()
+        msg = RPCMessage(
+            MessageType.REPL_SNAPSHOT,
+            {
+                'leader_id': self.node_id,
+                'snapshot': snapshot
+            }
+        )
+        try:
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+            return response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value
+        except Exception as e:
+            logger.debug(f"Snapshot send failed to {peer.node_id}: {e}")
+            return False
+
+    def _create_snapshot(self) -> Dict[str, Any]:
+        """Construye snapshot del estado"""
+        state = {
+            'namespace': self.namespace.export_state(),
+            'locks': self.lock_manager.export_state(),
+            'users': self.auth_service.export_state(),
+            'replicas': self.replica_manager.export_state(),
+            'commit_index': self._commit_index,
+            'term': self.leader_election.get_term()
+        }
+        try:
+            os.makedirs(os.path.dirname(self.snapshot_path), exist_ok=True)
+            with open(self.snapshot_path, 'w') as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Could not persist snapshot: {e}")
+        return state
+
+    def _install_snapshot(self, snapshot: Dict[str, Any]):
+        """Instala snapshot recibido"""
+        try:
+            if not snapshot:
+                return
+            self.namespace.import_state(snapshot.get('namespace', {}))
+            self.lock_manager.import_state(snapshot.get('locks', {}))
+            self.auth_service.import_state(snapshot.get('users', {}))
+            self.replica_manager.import_state(snapshot.get('replicas', {}))
+            self._commit_index = snapshot.get('commit_index', -1)
+            self._last_applied = self._commit_index
+        except Exception as e:
+            logger.error(f"Failed to install snapshot: {e}")
+
+    # === Handlers de replicación interna ===
+
+    def _handle_repl_append(self, msg: RPCMessage) -> RPCMessage:
+        entry = msg.payload.get('entry')
+        if not entry:
+            return RPCMessage(
+                MessageType.REPL_APPEND_RESPONSE,
+                {'status': DistributedResponseCode.ERROR.value},
+                msg.request_id
+            )
+
+        with self._log_lock:
+            expected_index = len(self._oplog)
+            if entry.get('index') != expected_index:
+                return RPCMessage(
+                    MessageType.REPL_APPEND_RESPONSE,
+                    {
+                        'status': DistributedResponseCode.SYNC_REQUIRED.value,
+                        'expected_index': expected_index
+                    },
+                    msg.request_id
+                )
+
+            self._append_log_entry(entry)
+            self._apply_log_entry(entry)
+
+        return RPCMessage(
+            MessageType.REPL_APPEND_RESPONSE,
+            {
+                'status': DistributedResponseCode.SUCCESS.value,
+                'last_index': entry.get('index')
+            },
+            msg.request_id
+        )
+
+    def _handle_repl_snapshot(self, msg: RPCMessage) -> RPCMessage:
+        # Si no somos líder y nos piden snapshot, redirigir
+        if not self.leader_election.is_leader() and 'snapshot' not in msg.payload:
+            return self._redirect_to_leader(MessageType.REPL_SNAPSHOT_RESPONSE, msg.request_id)
+
+        # Si recibimos snapshot para instalar
+        snapshot = msg.payload.get('snapshot')
+        if snapshot:
+            self._install_snapshot(snapshot)
+            # Limpiar log porque snapshot ya incluye estado
+            with self._log_lock:
+                self._oplog = []
+                try:
+                    if os.path.exists(self.log_path):
+                        os.remove(self.log_path)
+                except OSError:
+                    pass
+            return RPCMessage(
+                MessageType.REPL_SNAPSHOT_RESPONSE,
+                {'status': DistributedResponseCode.SUCCESS.value},
+                msg.request_id
+            )
+
+        # Si somos líder y nos piden snapshot
+        snapshot = self._create_snapshot()
+        return RPCMessage(
+            MessageType.REPL_SNAPSHOT_RESPONSE,
+            {
+                'status': DistributedResponseCode.SUCCESS.value,
+                'snapshot': snapshot
+            },
+            msg.request_id
+        )
+
+    def _handle_repl_redirect(self, msg: RPCMessage) -> RPCMessage:
+        """Permite a followers responder rápido con datos del líder actual"""
+        return self._redirect_to_leader(MessageType.REPL_REDIRECT, msg.request_id)
+
+
     # === Métodos de descubrimiento y auto-registro ===
     
     def _discover_and_register_with_peers(self):
@@ -740,7 +1115,7 @@ class MetadataServer:
                     {'node': self.node_info.to_dict()}
                 )
                 response = self._rpc_client.call(
-                    metadata_service, METADATA_RPC_PORT, msg, timeout=5
+                    metadata_service, METADATA_RPC_PORT, msg
                 )
                 
                 if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:

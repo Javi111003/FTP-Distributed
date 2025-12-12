@@ -239,7 +239,7 @@ class StorageServer:
                 }
                 self._save_index()
             
-            logger.debug(f"Stored file {file_id} ({len(data)} bytes)")
+            logger.info(f"[store] file_id={file_id} size={len(data)} version={version} checksum={checksum}")
             return (True, checksum)
             
         except Exception as e:
@@ -250,6 +250,7 @@ class StorageServer:
         """Recupera un archivo del almacenamiento local"""
         with self._index_lock:
             if file_id not in self._file_index:
+                logger.warning(f"[retrieve] miss file_id={file_id}")
                 return None
             file_info = self._file_index[file_id]
         
@@ -257,7 +258,9 @@ class StorageServer:
         
         try:
             with open(file_path, 'rb') as f:
-                return f.read()
+                data = f.read()
+                logger.info(f"[retrieve] file_id={file_id} size={len(data)}")
+                return data
         except Exception as e:
             logger.error(f"Error retrieving file {file_id}: {e}")
             return None
@@ -276,7 +279,7 @@ class StorageServer:
             with self._index_lock:
                 del self._file_index[file_id]
                 self._save_index()
-            logger.debug(f"Deleted file {file_id}")
+            logger.info(f"[delete] file_id={file_id}")
             return True
         except Exception as e:
             logger.error(f"Error deleting file {file_id}: {e}")
@@ -313,7 +316,12 @@ class StorageServer:
                 }
             )
             response = self._rpc_client.call(peer_host, peer_port, msg)
-            return response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value
+            ok = response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value
+            if ok:
+                logger.info(f"[replicate] file_id={file_id} -> {peer_host}:{peer_port}")
+            else:
+                logger.warning(f"[replicate] failed file_id={file_id} -> {peer_host}:{peer_port}")
+            return ok
         except Exception as e:
             logger.error(f"Error replicating to {peer_host}:{peer_port}: {e}")
             return False

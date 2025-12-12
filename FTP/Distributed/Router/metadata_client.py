@@ -55,11 +55,11 @@ class MetadataClient:
                     if self._query_leader(host, port):
                         break
                 
-                time.sleep(10)  # Esperar 10 segundos antes de volver a consultar
+                time.sleep(2)  # Más frecuencia para acelerar failover
                 
             except Exception as e:
                 logger.debug(f"Leader discovery loop error: {e}")
-                time.sleep(5)
+                time.sleep(1)
     
     def _discover_metadata_nodes(self):
         """Resuelve TODAS las IPs del servicio metadata"""
@@ -110,44 +110,75 @@ class MetadataClient:
     
     def _call(self, msg: RPCMessage, retry_count: int = 2) -> Optional[RPCMessage]:
         """Realiza una llamada RPC con reintentos y redirecciones al líder"""
+        # Construir lista de candidatos: líder conocido primero, luego todos los nodos descubiertos
         with self._leader_lock:
             leader_host = self._leader_host
             leader_port = self._leader_port
-        
-        for attempt in range(retry_count):
-            try:
-                response = self._rpc_client.call(leader_host, leader_port, msg)
-                
-                if response:
-                    # Si es NOT_LEADER, extraer IP del líder y reintentar
-                    if response.payload.get('status') == DistributedResponseCode.NOT_LEADER.value:
-                        new_leader_host = response.payload.get('leader_host')
-                        new_leader_port = response.payload.get('leader_port')
-                        
-                        if new_leader_host and new_leader_port:
+            candidates = [(leader_host, leader_port)] + list(self._known_metadata_nodes)
+        # Quitar duplicados preservando orden
+        seen = set()
+        uniq_candidates = []
+        for host, port in candidates:
+            if (host, port) not in seen:
+                seen.add((host, port))
+                uniq_candidates.append((host, port))
+
+        for host, port in uniq_candidates:
+            for attempt in range(retry_count):
+                try:
+                    response = self._rpc_client.call(host, port, msg)
+                    if response:
+                        # Manejo de redirección de líder
+                        if response.payload.get('status') in (
+                            DistributedResponseCode.NOT_LEADER.value,
+                            DistributedResponseCode.LEADER_REDIRECT.value
+                        ) or response.msg_type == MessageType.REPL_REDIRECT:
+                            new_leader_host = response.payload.get('leader_host')
+                            new_leader_port = response.payload.get('leader_port')
+                            if new_leader_host and new_leader_port:
+                                with self._leader_lock:
+                                    self._leader_host = new_leader_host
+                                    self._leader_port = new_leader_port
+                                    self._last_leader_update = time.time()
+                                logger.debug(f"Redirected to new leader: {new_leader_host}:{new_leader_port}")
+                                # Intentar inmediatamente con nuevo líder
+                                host, port = new_leader_host, new_leader_port
+                                continue
+                        else:
+                            # Éxito, actualizar líder actual
                             with self._leader_lock:
-                                self._leader_host = new_leader_host
-                                self._leader_port = new_leader_port
+                                self._leader_host = host
+                                self._leader_port = port
                                 self._last_leader_update = time.time()
-                            
-                            logger.debug(f"Redirected to new leader: {new_leader_host}:{new_leader_port}")
-                            leader_host = new_leader_host
-                            leader_port = new_leader_port
-                            continue
-                    
+                            return response
+
+                    # Sin respuesta, aplicar backoff y reintentar este host
+                    if attempt < retry_count - 1:
+                        time.sleep(0.1 * (2 ** attempt))
+                except Exception as e:
+                    logger.debug(f"RPC call error to {host}:{port}: {e}")
+                    if attempt < retry_count - 1:
+                        time.sleep(0.1 * (2 ** attempt))
+                    continue  # probar siguiente host tras reintentos
+
+        # Segundo intento: refrescar nodos y reintentar una vez con lista actualizada
+        self._discover_metadata_nodes()
+        with self._leader_lock:
+            refreshed = list(self._known_metadata_nodes)
+        for host, port in refreshed:
+            try:
+                response = self._rpc_client.call(host, port, msg)
+                if response:
+                    with self._leader_lock:
+                        self._leader_host = host
+                        self._leader_port = port
+                        self._last_leader_update = time.time()
                     return response
-                
-                # Sin respuesta, reintentar con backoff exponencial
-                if attempt < retry_count - 1:
-                    backoff = 0.1 * (2 ** attempt)
-                    time.sleep(backoff)
-                
             except Exception as e:
-                logger.debug(f"RPC call error: {e}")
-                if attempt < retry_count - 1:
-                    time.sleep(0.1 * (2 ** attempt))
-        
-        logger.error(f"Failed to call leader after {retry_count} attempts")
+                logger.debug(f"RPC retry after refresh failed to {host}:{port}: {e}")
+                continue
+
+        logger.error("Failed to call metadata after trying all candidates")
         return None
     
     def authenticate(self, username: str, password: str) -> Tuple[bool, Optional[Dict]]:

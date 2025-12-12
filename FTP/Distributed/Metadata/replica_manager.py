@@ -315,3 +315,17 @@ class ReplicaManager:
                 for rep in self._replicas[fid]:
                     self._node_files[rep.node_id].add(fid)
 
+    def apply_replicas_state(self, file_id: str, replicas_state: List[Dict]):
+        """Reemplaza el estado de réplicas de un archivo de forma idempotente"""
+        with self._lock:
+            replicas = [
+                ReplicaInfo.from_dict(r) if isinstance(r, dict) else r
+                for r in replicas_state
+            ]
+            # limpiar índice inverso para este file_id
+            for node_id in list(self._node_files.keys()):
+                self._node_files[node_id].discard(file_id)
+            self._replicas[file_id] = replicas
+            for rep in replicas:
+                self._node_files[rep.node_id].add(file_id)
+

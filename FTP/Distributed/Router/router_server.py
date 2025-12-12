@@ -130,7 +130,7 @@ class RouterServer:
                     if not data:
                         break
                     
-                    logger.debug(f"[{session.session_id}] Received: {data}")
+                    logger.info(f"[session={session.session_id}] cmd={data}")
                     
                     # Parsear comando
                     parts = data.split(None, 1)
@@ -145,6 +145,7 @@ class RouterServer:
                     # Procesar comando
                     response = self._process_command(session, client_socket, command, args)
                     if response:
+                        logger.info(f"[session={session.session_id}] rsp={response.strip()}")
                         self._send(client_socket, response)
                     
                     if command == 'QUIT':
@@ -192,14 +193,16 @@ class RouterServer:
             if session.passive_mode and session.passive_server:
                 session.passive_server.settimeout(30)
                 session.data_socket, _ = session.passive_server.accept()
+                logger.info(f"[session={session.session_id}] data-conn passive accept ok")
                 return True
             elif not session.passive_mode and session.data_addr and session.data_port:
                 session.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 session.data_socket.connect((session.data_addr, session.data_port))
+                logger.info(f"[session={session.session_id}] data-conn active connect to {session.data_addr}:{session.data_port} ok")
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error creating data connection: {e}")
+            logger.error(f"[session={session.session_id}] Error creating data connection: {e}")
             return False
     
     def _resolve_path(self, session: FTPSession, path: str) -> str:
@@ -359,7 +362,7 @@ class RouterServer:
                     ip_parts = ip.split('.')
                     port_high = port >> 8
                     port_low = port & 0xFF
-                    
+                    logger.info(f"[session={session.session_id}] PASV listen {ip}:{port}")
                     return f"227 Entering Passive Mode ({','.join(ip_parts)},{port_high},{port_low})\r\n"
                 except OSError:
                     continue
@@ -378,7 +381,7 @@ class RouterServer:
             session.data_addr = '.'.join(nums[:4])
             session.data_port = (int(nums[4]) << 8) + int(nums[5])
             session.passive_mode = False
-            
+            logger.info(f"[session={session.session_id}] PORT set {session.data_addr}:{session.data_port}")
             return "200 PORT command successful\r\n"
         except:
             return "501 Invalid PORT command\r\n"
@@ -444,6 +447,7 @@ class RouterServer:
         self._send(client_socket, "150 Opening data connection\r\n")
         
         try:
+            logger.info(f"[session={session.session_id}] LIST path={path}")
             listing = ""
             for entry in entries:
                 # Formato similar a ls -l
@@ -475,6 +479,7 @@ class RouterServer:
         self._send(client_socket, "150 Opening data connection\r\n")
         
         try:
+            logger.info(f"[session={session.session_id}] NLST path={path}")
             listing = "\r\n".join(entry.get('name', '') for entry in entries) + "\r\n"
             session.data_socket.sendall(listing.encode('utf-8'))
             session.data_socket.close()
@@ -570,6 +575,8 @@ class RouterServer:
         if data is None:
             return "550 Could not retrieve file\r\n"
         
+        logger.info(f"[session={session.session_id}] RETR path={path} size={len(data)}")
+        
         if not self._create_data_connection(session):
             return "425 No data connection\r\n"
         
@@ -628,6 +635,7 @@ class RouterServer:
             if stored > 0:
                 # Actualizar tamaño en metadata
                 self.metadata_client.update_file_meta(path, size=len(data))
+                logger.info(f"[session={session.session_id}] STOR path={path} size={len(data)} replicas={stored}")
                 return "226 Transfer complete\r\n"
             
             return "550 Could not store file\r\n"
@@ -693,6 +701,7 @@ class RouterServer:
             
             if stored > 0:
                 self.metadata_client.update_file_meta(path, size=len(new_data))
+                logger.info(f"[session={session.session_id}] APPE path={path} size={len(new_data)}")
                 return "226 Transfer complete\r\n"
             
             return "550 Could not append to file\r\n"

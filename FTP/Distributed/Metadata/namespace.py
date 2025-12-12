@@ -71,6 +71,38 @@ class FileSystemNamespace:
         except Exception as e:
             logger.error(f"Error persisting namespace: {e}")
     
+    def export_state(self) -> Dict:
+        """Exporta el namespace completo para snapshot"""
+        with self._lock:
+            return {
+                'namespace': {path: meta.to_dict() for path, meta in self._namespace.items()},
+                'id_index': dict(self._id_index)
+            }
+    
+    def import_state(self, state: Dict):
+        """Importa el namespace desde snapshot"""
+        with self._lock:
+            self._namespace.clear()
+            self._id_index.clear()
+            
+            for path, meta_dict in state.get('namespace', {}).items():
+                meta = FileMetadata.from_dict(meta_dict)
+                self._namespace[path] = meta
+                self._id_index[meta.file_id] = path
+            
+            # Persistir para durabilidad
+            self._persist_to_disk()
+    
+    def upsert_entry(self, meta: FileMetadata):
+        """
+        Inserta o actualiza una entrada exacta del namespace.
+        Idempotente: si ya existe, se sobreescribe con los datos recibidos.
+        """
+        with self._lock:
+            self._namespace[meta.path] = meta
+            self._id_index[meta.file_id] = meta.path
+            self._persist_to_disk()
+    
     def _normalize_path(self, path: str) -> str:
         """Normaliza una ruta"""
         if not path:

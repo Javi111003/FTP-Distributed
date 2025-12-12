@@ -137,6 +137,25 @@ class LockInfo:
         if self.expires_at is None:
             return False
         return time.time() > self.expires_at
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'file_id': self.file_id,
+            'lock_type': self.lock_type,
+            'holder': self.holder,
+            'acquired_at': self.acquired_at,
+            'expires_at': self.expires_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LockInfo':
+        return cls(
+            file_id=data['file_id'],
+            lock_type=data['lock_type'],
+            holder=data['holder'],
+            acquired_at=data.get('acquired_at', time.time()),
+            expires_at=data.get('expires_at')
+        )
 
 
 @dataclass
