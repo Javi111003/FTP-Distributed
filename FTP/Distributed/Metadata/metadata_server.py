@@ -1096,38 +1096,46 @@ class MetadataServer:
     # === Métodos de descubrimiento y auto-registro ===
     
     def _discover_and_register_with_peers(self):
-        """Descubre otros nodos metadata y se registra con ellos"""
+        """Descubre otros nodos metadata vía DNS y se registra con ellos"""
         try:
-            # Intentar registrarse con el servicio metadata de Docker Swarm
-            metadata_service = os.getenv('METADATA_SERVICE', 'metadata')
-            
-            # Si no hay METADATA_SERVICE configurado, somos el primer nodo
-            if not os.getenv('METADATA_SERVICE'):
-                logger.info("No METADATA_SERVICE configured, likely first node")
-                return
-            
-            logger.info(f"Attempting to discover peers via service '{metadata_service}'")
-            
-            # Intentar solo UNA VEZ - el peer nos compartirá todos sus conocidos
+            metadata_service = 'metadata'  # Siempre usar el alias DNS
+            logger.info(f"Discovering peers via DNS alias '{metadata_service}'")
+
+            # Resolver todas las IPs del alias
+            import socket
             try:
-                msg = RPCMessage(
-                    MessageType.REGISTER_NODE,
-                    {'node': self.node_info.to_dict()}
-                )
-                response = self._rpc_client.call(
-                    metadata_service, METADATA_RPC_PORT, msg
-                )
-                
-                if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
-                    # Procesar peers que nos envió el otro nodo
-                    peers_data = response.payload.get('my_peers', [])
-                    self._register_received_peers(peers_data)
-                    logger.info(f"Successfully discovered {len(peers_data)} peers from metadata service")
-                    return  # Éxito, terminar
-                    
-            except Exception as e:
-                logger.warning(f"Could not discover peers: {e}")
-                    
+                _, _, ipaddrlist = socket.gethostbyname_ex(metadata_service)
+            except socket.gaierror:
+                logger.warning(f"Could not resolve DNS alias '{metadata_service}'")
+                return
+
+            # Registrarse en cada IP resuelta (excepto la propia)
+            self_host = socket.gethostbyname(self.node_info.host)
+            registered = False
+            for ip in ipaddrlist:
+                if ip == self_host:
+                    continue  # No registrarse en sí mismo
+                try:
+                    msg = RPCMessage(
+                        MessageType.REGISTER_NODE,
+                        {'node': self.node_info.to_dict()}
+                    )
+                    response = self._rpc_client.call(ip, METADATA_RPC_PORT, msg)
+
+                    if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                        # Procesar peers que nos envió el otro nodo
+                        peers_data = response.payload.get('my_peers', [])
+                        self._register_received_peers(peers_data)
+                        logger.info(f"Successfully registered with {ip}, discovered {len(peers_data)} peers")
+                        registered = True
+                        # No terminar, intentar con todos para mesh completa
+
+                except Exception as e:
+                    logger.debug(f"Failed to register with {ip}: {e}")
+
+            if not registered:
+                logger.info("No peers found, assuming first node")
+
         except Exception as e:
             logger.warning(f"Error in peer discovery: {e}")
     
