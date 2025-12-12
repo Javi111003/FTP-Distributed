@@ -4,6 +4,7 @@ Coordina todos los subcomponentes y expone la API RPC.
 """
 import json
 import os
+import socket
 import time
 import uuid
 import logging
@@ -12,10 +13,10 @@ from typing import Dict, Optional, List, Any, Tuple
 
 from ..Common.constants import (
     METADATA_RPC_PORT, MessageType, NodeType, NodeState,
-    DistributedResponseCode, REPLICATION_FACTOR
+    DistributedResponseCode, REPLICATION_FACTOR, HEARTBEAT_INTERVAL
 )
 from ..Common.rpc_protocol import RPCServer, RPCMessage, RPCClient
-from ..Common.models import NodeInfo, FileMetadata, ReplicaInfo, LockInfo
+from ..Common.models import NodeInfo, ReplicaInfo, LockInfo, FileMetadata
 
 from .namespace import FileSystemNamespace
 from .lock_manager import LockManager
@@ -74,7 +75,8 @@ class MetadataServer:
             self.node_id,
             self.node_info,
             on_become_leader=self._on_become_leader,
-            on_leader_change=self._on_leader_change
+            on_leader_change=self._on_leader_change,
+            heartbeat_manager=self.heartbeat_manager  # Pasar referencia
         )
         
         # Servidor RPC
@@ -154,11 +156,18 @@ class MetadataServer:
         # Esperar un momento para que el servidor RPC esté listo
         time.sleep(0.5)
         
-        # NUEVO: Descubrir y registrarse con otros nodos metadata
+        # Descubrir y registrarse con otros nodos metadata
         self._discover_and_register_with_peers()
         
         # Iniciar leader election
         self.leader_election.start()
+        
+        # Iniciar envío de heartbeats a peers metadata
+        self._heartbeat_thread = threading.Thread(
+            target=self._metadata_heartbeat_loop,
+            daemon=True
+        )
+        self._heartbeat_thread.start()
         
         logger.info(f"Metadata server started: {self.node_id} on {self.host}:{self.port}")
         
@@ -177,6 +186,34 @@ class MetadataServer:
         self.leader_election.stop()
         self.lock_manager.stop()
         logger.info("Metadata server stopped")
+        
+    def _metadata_heartbeat_loop(self):
+        """Envía heartbeats periódicos a otros nodos metadata"""
+        while self._running:
+            try:
+                with self.leader_election._lock:
+                    peers_copy = dict(self.leader_election._peers)
+                
+                for peer in peers_copy.values():
+                    # Verificar estado del peer antes de enviar heartbeat
+                    peer_state = self.heartbeat_manager.get_node_state(peer.node_id)
+                    if peer_state == NodeState.DOWN:
+                        continue  # Saltar nodos caídos
+                    
+                    try:
+                        msg = RPCMessage(
+                            MessageType.HEARTBEAT,
+                            {'node_id': self.node_id, 'timestamp': time.time()}
+                        )
+                        self._rpc_client.call(peer.host, peer.port, msg)
+                    except Exception as e:
+                        # Silenciar errores de DNS que son esperados cuando un nodo está DOWN
+                        if "Temporary failure in name resolution" not in str(e):
+                            logger.debug(f"Heartbeat to {peer.node_id} failed: {e}")
+                
+                time.sleep(HEARTBEAT_INTERVAL)
+            except Exception as e:
+                logger.error(f"Error in metadata heartbeat loop: {e}")
     
     # === Callbacks ===
     
@@ -291,7 +328,7 @@ class MetadataServer:
             
             # Evitar auto-registro
             if node.node_id == self.node_id:
-                logger.debug(f"Ignoring self-registration attempt")
+                logger.debug("Ignoring self-registration attempt")
                 return RPCMessage(
                     MessageType.REGISTER_RESPONSE,
                     {'status': DistributedResponseCode.ERROR.value, 'error': 'Cannot register self'},
@@ -1098,46 +1135,94 @@ class MetadataServer:
     def _discover_and_register_with_peers(self):
         """Descubre otros nodos metadata vía DNS y se registra con ellos"""
         try:
-            metadata_service = 'metadata'  # Siempre usar el alias DNS
+            metadata_service = os.getenv('METADATA_SERVICE', 'metadata')
             logger.info(f"Discovering peers via DNS alias '{metadata_service}'")
 
             # Resolver todas las IPs del alias
-            import socket
             try:
                 _, _, ipaddrlist = socket.gethostbyname_ex(metadata_service)
             except socket.gaierror:
                 logger.warning(f"Could not resolve DNS alias '{metadata_service}'")
                 return
-
-            # Registrarse en cada IP resuelta (excepto la propia)
-            self_host = socket.gethostbyname(self.node_info.host)
-            registered = False
+            
+            # Obtener nuestra propia IP para evitar auto-registro
+            try:
+                self_host = socket.gethostbyname(self.node_info.host)
+            except socket.gaierror:
+                self_host = None
+            
+            # Registrarse con cada peer descubierto
             for ip in ipaddrlist:
                 if ip == self_host:
-                    continue  # No registrarse en sí mismo
+                    continue  # Saltar nuestra propia IP
+                
                 try:
                     msg = RPCMessage(
                         MessageType.REGISTER_NODE,
                         {'node': self.node_info.to_dict()}
                     )
                     response = self._rpc_client.call(ip, METADATA_RPC_PORT, msg)
-
+                    
                     if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                         # Procesar peers que nos envió el otro nodo
                         peers_data = response.payload.get('my_peers', [])
-                        self._register_received_peers(peers_data)
-                        logger.info(f"Successfully registered with {ip}, discovered {len(peers_data)} peers")
-                        registered = True
-                        # No terminar, intentar con todos para mesh completa
-
+                        
+                        # Registrar localmente todos los peers descubiertos
+                        discovered_peers = []
+                        for peer_dict in peers_data:
+                            try:
+                                peer = NodeInfo.from_dict(peer_dict)
+                                if peer.node_id != self.node_id:
+                                    with self.leader_election._lock:
+                                        if peer.node_id not in self.leader_election._peers:
+                                            self.leader_election.register_peer(peer)
+                                            self.heartbeat_manager.register_node(peer)
+                                            discovered_peers.append(peer)
+                                            logger.info(f"Discovered peer {peer.node_id}")
+                            except Exception as e:
+                                logger.debug(f"Could not process peer: {e}")
+                        
+                        # Registrarse activamente con cada peer descubierto
+                        for peer in discovered_peers:
+                            with self._registration_lock:
+                                if peer.node_id not in self._registered_peers:
+                                    self._registered_peers.add(peer.node_id)
+                                    threading.Thread(
+                                        target=self._register_with_peer_actively,
+                                        args=(peer,),
+                                        daemon=True
+                                    ).start()
+                        
+                        logger.info(f"Successfully registered with {ip}, discovered {len(discovered_peers)} peers")
+                        return  # Ya nos registramos con un peer, suficiente
+                        
                 except Exception as e:
-                    logger.debug(f"Failed to register with {ip}: {e}")
-
-            if not registered:
-                logger.info("No peers found, assuming first node")
-
+                    logger.debug(f"Could not register with peer {ip}: {e}")
+                    
         except Exception as e:
             logger.warning(f"Error in peer discovery: {e}")
+    
+    def _register_with_peer_actively(self, peer: NodeInfo):
+        """Se registra activamente con un peer descubierto"""
+        if peer.node_id == self.node_id:
+            return
+        
+        try:
+            # Pequeño delay para evitar sobrecarga
+            time.sleep(0.1)
+            
+            msg = RPCMessage(
+                MessageType.REGISTER_NODE,
+                {'node': self.node_info.to_dict()}
+            )
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+            
+            if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                logger.info(f"Successfully registered actively with peer {peer.node_id}")
+            else:
+                logger.warning(f"Failed to register with peer {peer.node_id}")
+        except Exception as e:
+            logger.warning(f"Could not register with peer {peer.node_id}: {e}")
     
     def _register_with_peer(self, peer: NodeInfo):
         """Se registra con otro nodo metadata para descubrimiento mutuo"""
@@ -1149,6 +1234,8 @@ class MetadataServer:
             if peer.node_id in self._registered_peers:
                 logger.debug(f"Already registered with peer {peer.node_id}, skipping")
                 return
+            # Marcar inmediatamente para evitar doble registro
+            self._registered_peers.add(peer.node_id)
         
         try:
             msg = RPCMessage(
@@ -1158,16 +1245,16 @@ class MetadataServer:
             response = self._rpc_client.call(peer.host, peer.port, msg)
             
             if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
-                # Procesar peers que nos envió
-                peers_data = response.payload.get('my_peers', [])
-                self._register_received_peers(peers_data)
                 logger.info(f"Successfully registered with peer {peer.node_id}")
-                
-                # Marcar como registrado exitosamente
+            else:
+                # Si falla, remover de registered_peers para reintentar
                 with self._registration_lock:
-                    self._registered_peers.add(peer.node_id)
+                    self._registered_peers.discard(peer.node_id)
         except Exception as e:
             logger.debug(f"Could not register with peer {peer.node_id}: {e}")
+            # Si falla, remover de registered_peers para reintentar
+            with self._registration_lock:
+                self._registered_peers.discard(peer.node_id)
     
     def _share_peers_with_node(self, new_node: NodeInfo):
         """Comparte todos nuestros peers con un nuevo nodo para crear malla completa"""
@@ -1176,6 +1263,7 @@ class MetadataServer:
     
     def _register_received_peers(self, peers_data: List[Dict]):
         """Registra peers recibidos de otro nodo"""
+        # Este método ya no se usa, reemplazado por lógica en _discover_and_register_with_peers
         for peer_dict in peers_data:
             try:
                 peer = NodeInfo.from_dict(peer_dict)

@@ -24,11 +24,13 @@ class LeaderElection:
     
     def __init__(self, node_id: str, node_info: NodeInfo,
                  on_become_leader: Callable = None,
-                 on_leader_change: Callable = None):
+                 on_leader_change: Callable = None,
+                 heartbeat_manager=None):
         self.node_id = node_id
         self.node_info = node_info
         self.on_become_leader = on_become_leader
         self.on_leader_change = on_leader_change
+        self.heartbeat_manager = heartbeat_manager  # Referencia al heartbeat manager
         
         self._lock = threading.RLock()
         self._peers: Dict[str, NodeInfo] = {}  # Otros nodos de metadata
@@ -36,6 +38,8 @@ class LeaderElection:
         self._term = 0  # Término de elección
         self._is_leader = False
         self._last_leader_heartbeat = 0
+        self._missed_heartbeats = 0  # Contador de heartbeats perdidos
+        self._election_in_progress = False  # Flag para evitar elecciones concurrentes
         
         self._running = False
         self._election_thread: Optional[threading.Thread] = None
@@ -177,58 +181,75 @@ class LeaderElection:
         with self._lock:
             if leader_id == self._current_leader and term >= self._term:
                 self._last_leader_heartbeat = time.time()
+                self._missed_heartbeats = 0  # Resetear contador
     
     def _start_election(self):
         """Inicia una nueva elección"""
         with self._lock:
+            # Evitar elecciones concurrentes
+            if self._election_in_progress:
+                logger.debug("Election already in progress, skipping")
+                return
+            
             # PRIMERO: Verificar si ya hay un líder activo
             if self._current_leader and self._current_leader != self.node_id:
                 # Hay un líder conocido, verificar si está vivo
                 time_since_heartbeat = time.time() - self._last_leader_heartbeat
                 if time_since_heartbeat < LEADER_ELECTION_TIMEOUT:
                     # El líder está vivo, no iniciar elección innecesaria
-                    logger.info(f"Leader {self._current_leader} is active, skipping election")
+                    logger.debug(f"Leader {self._current_leader} is active, skipping election")
+                    return
+                
+                # Incrementar contador de heartbeats perdidos
+                self._missed_heartbeats += 1
+                if self._missed_heartbeats < 3:  # Requerir 3 fallos consecutivos
+                    logger.debug(f"Leader timeout but only {self._missed_heartbeats} missed heartbeats")
                     return
             
+            self._election_in_progress = True
             self._term += 1
             current_term = self._term
             peers_copy = dict(self._peers)
         
         logger.info(f"Starting election for term {current_term}")
         
-        # Enviar mensaje de elección a todos los peers con ID menor
-        lower_peers = [p for pid, p in peers_copy.items() if pid < self.node_id]
-        
-        if not lower_peers:
-            # Somos el nodo con ID más bajo, convertirnos en líder
-            self._become_leader()
-            return
-        
-        # Enviar mensajes de elección
-        responses = []
-        for peer in lower_peers:
-            msg = RPCMessage(
-                MessageType.LEADER_ELECTION,
-                {'node_id': self.node_id, 'term': current_term}
+        try:
+            # Enviar mensaje de elección a todos los peers con ID menor
+            lower_peers = [p for pid, p in peers_copy.items() if pid < self.node_id]
+            
+            if not lower_peers:
+                # Somos el nodo con ID más bajo, convertirnos en líder
+                self._become_leader()
+                return
+            
+            # Enviar mensajes de elección
+            responses = []
+            for peer in lower_peers:
+                msg = RPCMessage(
+                    MessageType.LEADER_ELECTION,
+                    {'node_id': self.node_id, 'term': current_term}
+                )
+                try:
+                    response = self._rpc_client.call(peer.host, peer.port, msg)
+                    if response:
+                        responses.append(response)
+                except Exception as e:
+                    logger.debug(f"Failed to contact peer {peer.node_id}: {e}")
+            
+            # Si no hay respuestas de nodos con ID menor, convertirnos en líder
+            active_lower = any(
+                r.payload.get('status') == 'LOWER' for r in responses
             )
-            try:
-                response = self._rpc_client.call(peer.host, peer.port, msg)
-                if response:
-                    responses.append(response)
-            except Exception as e:
-                logger.debug(f"Failed to contact peer {peer.node_id}: {e}")
-        
-        # Si no hay respuestas de nodos con ID menor, convertirnos en líder
-        active_lower = any(
-            r.payload.get('status') == 'LOWER' for r in responses
-        )
-        
-        if not active_lower:
-            # Esperar un momento por si hay elecciones en curso
-            time.sleep(0.5)
+            
+            if not active_lower:
+                # Esperar un momento por si hay elecciones en curso
+                time.sleep(0.5)
+                with self._lock:
+                    if self._term == current_term:  # No hubo cambios
+                        self._become_leader()
+        finally:
             with self._lock:
-                if self._term == current_term:  # No hubo cambios
-                    self._become_leader()
+                self._election_in_progress = False
     
     def _become_leader(self):
         """Este nodo se convierte en líder"""
@@ -276,8 +297,8 @@ class LeaderElection:
                     if self._current_leader:
                         time_since_heartbeat = time.time() - self._last_leader_heartbeat
                         if time_since_heartbeat > LEADER_ELECTION_TIMEOUT:
-                            logger.warning(f"Leader {self._current_leader} timeout, starting election")
-                            self._start_election()
+                            # Solo iniciar elección si han pasado múltiples ciclos
+                            threading.Thread(target=self._start_election, daemon=True).start()
     
     def _send_leader_heartbeats(self):
         """Envía heartbeats a todos los peers"""
@@ -286,6 +307,13 @@ class LeaderElection:
             term = self._term
         
         for peer in peers_copy.values():
+            # Verificar estado del peer antes de enviar heartbeat (si tenemos referencia)
+            if self.heartbeat_manager:
+                from ..Common.constants import NodeState
+                peer_state = self.heartbeat_manager.get_node_state(peer.node_id)
+                if peer_state == NodeState.DOWN:
+                    continue  # Saltar nodos caídos
+            
             msg = RPCMessage(
                 MessageType.HEARTBEAT,
                 {'leader_id': self.node_id, 'term': term}
@@ -293,7 +321,9 @@ class LeaderElection:
             try:
                 self._rpc_client.call(peer.host, peer.port, msg)
             except Exception as e:
-                logger.debug(f"Failed to send heartbeat to {peer.node_id}: {e}")
+                # Silenciar errores de DNS esperados
+                if "Temporary failure in name resolution" not in str(e):
+                    logger.debug(f"Failed to send heartbeat to {peer.node_id}: {e}")
     
     def query_leader(self, peer: NodeInfo) -> Optional[str]:
         """Consulta a un peer quién es el líder"""
