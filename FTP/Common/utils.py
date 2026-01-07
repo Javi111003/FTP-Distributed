@@ -36,31 +36,59 @@ def validate_path(path: str) -> bool:
 
 def parse_list_response(response: str) -> list[dict]:
     """
-    Parsea la respuesta del comando LIST y devuelve una lista de diccionarios
+    Parsea la respuesta del comando LIST (formato Unix) y devuelve una lista de diccionarios
     con información de archivos.
+    Formato esperado: -rw-r--r-- 1 owner group size month day time filename
     """
     files_info = []
     for line in response.split('\n'):
         line = line.strip()
-        if line:
-            # Dividir la línea en sus componentes
-            parts = line.split(None, 1)  # Dividir en máximo 2 partes
-            if len(parts) >= 2:
-                # El último elemento es el tamaño y el resto es el nombre
-                size = parts[0]
-                name = parts[1]
-                
-                # Crear diccionario con la información del archivo
-                file_info = {
-                    'nombre': name,
-                    'tamaño': size
-                }
+        if line and not line.startswith('total'):  # Ignorar línea "total"
+            # Parsear formato Unix: permissions links owner group size month day time name
+            parts = line.split()
+            if len(parts) >= 8:  # Asegurar que tenemos suficientes partes
+                # Extraer información del formato Unix
+                permissions = parts[0]
+                links = parts[1]
+                owner = parts[2]
+                group = parts[3]
+                size = parts[4]
+                month = parts[5]
+                day = parts[6]
+                time = parts[7]
+
+                # El nombre del archivo puede contener espacios, así que tomar desde la posición 8 en adelante
+                name = ' '.join(parts[8:])
+
+                # Solo procesar archivos regulares y directorios, no enlaces simbólicos, etc.
+                if permissions.startswith('-') or permissions.startswith('d'):
+                    # Crear diccionario con la información del archivo
+                    file_info = {
+                        'nombre': name,
+                        'tamaño': size,
+                        'permisos': permissions,
+                        'owner': owner,
+                        'group': group,
+                        'fecha': f"{month} {day} {time}"
+                    }
                 files_info.append(file_info)
             else:
-                # Si solo hay una parte, asumimos que es el nombre
+                # Si el formato no es el esperado, intentar parseo simple
+                parts = line.split(None, 1)
+                if len(parts) >= 2:
+                    size = parts[0]
+                    name = parts[1]
+                else:
+                    size = '0'
+                    name = parts[0] if parts else 'desconocido'
+
                 file_info = {
-                    'nombre': parts[0],
-                    'tamaño': '0'
+                    'nombre': name,
+                    'tamaño': size,
+                    'permisos': 'unknown',
+                    'owner': 'unknown',
+                    'group': 'unknown',
+                    'fecha': 'unknown'
                 }
                 files_info.append(file_info)
     

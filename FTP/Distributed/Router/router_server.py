@@ -451,10 +451,13 @@ class RouterServer:
             listing = ""
             for entry in entries:
                 # Formato similar a ls -l
-                is_dir = 'd' if entry.get('is_directory') else '-'
+                if entry.get('is_directory'):
+                    permissions = "drwxr-xr-x"
+                else:
+                    permissions = "-rw-r--r--"
                 size = entry.get('size', 0)
                 name = entry.get('name', '')
-                listing += f"{is_dir}rw-r--r-- 1 {entry.get('owner', 'ftp')} ftp {size:>10} Jan 01 00:00 {name}\r\n"
+                listing += f"{permissions} 1 {entry.get('owner', 'ftp')} ftp {size:>10} Jan 01 00:00 {name}\r\n"
             
             session.data_socket.sendall(listing.encode('utf-8'))
             session.data_socket.close()

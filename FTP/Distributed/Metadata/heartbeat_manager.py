@@ -60,6 +60,7 @@ class HeartbeatManager:
         """Recibe un heartbeat de un nodo"""
         with self._lock:
             self._last_heartbeat[node_id] = time.time()
+            logger.warning(f"💓 HEARTBEAT RECEIVED from {node_id}")
             
             # Si el nodo estaba sospechoso o caído, incrementar contador de recuperación
             if node_id in self._suspect_nodes or (node_id in self._nodes and self._nodes[node_id].state == NodeState.DOWN):
@@ -73,7 +74,9 @@ class HeartbeatManager:
                     if node_id in self._nodes:
                         old_state = self._nodes[node_id].state
                         self._nodes[node_id].state = NodeState.UP
-                        
+
+                        logger.info(f"🟢 NODE STATE CHANGE: {node_id} cambió de {old_state.value} → UP")
+
                         if old_state != NodeState.UP and self.on_node_up:
                             threading.Thread(
                                 target=self.on_node_up,
@@ -164,6 +167,7 @@ class HeartbeatManager:
         """Maneja un nodo que ha dejado de responder"""
         with self._lock:
             if node.state != NodeState.DOWN:
+                logger.error(f"🔴 NODE STATE CHANGE: {node_id} cambió a DOWN (timeout de heartbeat)")
                 node.state = NodeState.DOWN
                 self._suspect_nodes.discard(node_id)
                 self._recovery_count[node_id] = 0  # Reset contador de recuperación

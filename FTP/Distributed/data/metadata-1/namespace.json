@@ -1,0 +1,17 @@
+{
+  "/": {
+    "file_id": "e7910b62-9cd9-443a-8c16-28a7e0cb7b1e",
+    "path": "/",
+    "name": "/",
+    "size": 0,
+    "owner": "root",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1766000767.2209299,
+    "modified_at": 1766000767.2209303,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  }
+}

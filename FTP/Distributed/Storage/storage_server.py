@@ -207,15 +207,49 @@ class StorageServer:
     
     def _heartbeat_loop(self):
         """Envía heartbeats periódicos al servicio de metadata"""
+        leader_check_counter = 0
+
         while self._running:
             try:
+                # Consultar líder cada 3 heartbeats para no sobrecargar
+                current_leader_host = self.metadata_host
+                current_leader_port = self.metadata_port
+
+                if leader_check_counter % 3 == 0:
+                    try:
+                        leader_query = RPCMessage(MessageType.LEADER_QUERY, {})
+                        # Intentar con todos los metadatas conocidos
+                        for attempt_host in [self.metadata_host, 'metadata1', 'metadata2', 'metadata3']:
+                            try:
+                                response = self._rpc_client.call(attempt_host, self.metadata_port, leader_query)
+                                if response:
+                                    new_leader_host = response.payload.get('leader_host')
+                                    new_leader_port = response.payload.get('leader_port')
+                                    if new_leader_host and new_leader_port:
+                                        current_leader_host = new_leader_host
+                                        current_leader_port = new_leader_port
+                                        logger.warning(f"Storage {self.node_id} FOLLOWING LEADER: {current_leader_host}:{current_leader_port}")
+                                        break
+                            except:
+                                continue
+                    except Exception as e:
+                        logger.debug(f"Leader discovery failed: {e}")
+
+                leader_check_counter += 1
+
+                # Enviar heartbeat al líder actual
                 msg = RPCMessage(
                     MessageType.HEARTBEAT,
                     {'node_id': self.node_id, 'timestamp': time.time()}
                 )
-                self._rpc_client.call(self.metadata_host, self.metadata_port, msg)
+                response = self._rpc_client.call(current_leader_host, current_leader_port, msg)
+                if response:
+                    logger.warning(f"STORAGE {self.node_id}: HEARTBEAT SENT to {current_leader_host}:{current_leader_port}")
+                else:
+                    logger.error(f"STORAGE {self.node_id}: HEARTBEAT FAILED to {current_leader_host}:{current_leader_port}")
+
             except Exception as e:
-                logger.debug(f"Heartbeat failed: {e}")
+                logger.error(f"Heartbeat error: {e}")
             time.sleep(HEARTBEAT_INTERVAL)
     
     # === Operaciones de archivos ===

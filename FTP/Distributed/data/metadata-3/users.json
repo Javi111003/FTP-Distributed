@@ -1,0 +1,11 @@
+{
+  "admin": {
+    "username": "admin",
+    "password_hash": "$2b$12$Z0kQPJoEoO4WBz2coacAr.JA9pJDR3lvCxpjgBX0Oz94G23OdM6Qa",
+    "home_dir": "/admin",
+    "groups": [
+      "users"
+    ],
+    "is_admin": true
+  }
+}

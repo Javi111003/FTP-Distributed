@@ -39,9 +39,6 @@ coverage.xml
 # Variables de entorno
 .env
 
-# Datos persistentes del sistema distribuido
-data/
-
 # Latex build files
 *.fls
 *.fdb_latexmk
@@ -55,4 +52,3 @@ FTP/Downloads/
 FTP/Server/Auth/credentials.enc
 FTP/Server/Auth/secret.key
 report/img/
-/pylintrc

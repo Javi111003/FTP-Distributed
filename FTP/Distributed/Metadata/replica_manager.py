@@ -71,10 +71,23 @@ class ReplicaManager:
     def get_available_storage_nodes(self) -> List[NodeInfo]:
         """Obtiene todos los nodos de almacenamiento disponibles"""
         with self._lock:
-            return [
+            available_nodes = [
                 node for node in self._storage_nodes.values()
                 if node.state == NodeState.UP
             ]
+
+            # Logging detallado de nodos disponibles
+            node_statuses = []
+            for node_id, node in self._storage_nodes.items():
+                status = f"{node_id}({node.state.value})"
+                node_statuses.append(status)
+
+            all_nodes_str = ", ".join(node_statuses) if node_statuses else "NINGUNO"
+            available_nodes_str = ", ".join([n.node_id for n in available_nodes]) if available_nodes else "NINGUNO"
+
+            logger.info(f"🔍 METADATA STORAGE STATUS: Total registrados: {len(self._storage_nodes)} | Estados: [{all_nodes_str}] | Disponibles (UP): [{available_nodes_str}]")
+
+            return available_nodes
     
     def select_replicas_for_file(self, file_id: str, exclude_nodes: List[str] = None) -> List[NodeInfo]:
         """
@@ -85,7 +98,9 @@ class ReplicaManager:
             available_nodes = self.get_available_storage_nodes()
             if exclude_nodes:
                 available_nodes = [n for n in available_nodes if n.node_id not in exclude_nodes]
-            
+
+            logger.info(f"📋 SELECTING REPLICAS para archivo {file_id}: {len(available_nodes)} nodos disponibles, factor de replicación: {self.replication_factor}")
+
             if len(available_nodes) < self.replication_factor:
                 logger.warning(f"Not enough storage nodes. Available: {len(available_nodes)}, Required: {self.replication_factor}")
             
@@ -94,7 +109,10 @@ class ReplicaManager:
             
             # Seleccionar los nodos con menos carga hasta alcanzar el factor de replicación
             selected = available_nodes[:self.replication_factor]
-            
+
+            selected_nodes_str = ", ".join([n.node_id for n in selected]) if selected else "NINGUNO"
+            logger.info(f"✅ REPLICAS SELECCIONADAS para {file_id}: [{selected_nodes_str}]")
+
             return selected
     
     def assign_replicas(self, file_id: str, nodes: List[NodeInfo], 
@@ -124,15 +142,58 @@ class ReplicaManager:
             return self._replicas.get(file_id, [])
     
     def get_replica_nodes(self, file_id: str) -> List[NodeInfo]:
-        """Obtiene los nodos que tienen réplicas de un archivo"""
+        """
+        Obtiene los nodos que tienen réplicas de un archivo.
+        Solo devuelve nodos que:
+        1. Están registrados en el sistema
+        2. Tienen estado UP (el heartbeat_manager se encarga de marcar nodos DOWN)
+        """
         with self._lock:
             replicas = self._replicas.get(file_id, [])
             nodes = []
+            
             for replica in replicas:
                 node = self._storage_nodes.get(replica.node_id)
+                # Solo verificar que el nodo existe y está UP
+                # El heartbeat_manager ya se encarga de cambiar el estado a DOWN
+                # cuando un nodo no envía heartbeats
                 if node and node.state == NodeState.UP:
                     nodes.append(node)
+            
+            if not nodes and replicas:
+                logger.warning(f"No active replica nodes found for file {file_id}. "
+                             f"Replicas: {[r.node_id for r in replicas]}, "
+                             f"Registered nodes: {list(self._storage_nodes.keys())}")
+            
             return nodes
+    
+    def get_all_replica_nodes_including_down(self, file_id: str) -> List[Tuple[NodeInfo, bool]]:
+        """
+        Obtiene todos los nodos que tienen réplicas, incluyendo los caídos.
+        Retorna lista de tuplas (NodeInfo, is_available).
+        Útil para diagnóstico y recuperación.
+        """
+        with self._lock:
+            replicas = self._replicas.get(file_id, [])
+            result = []
+            
+            for replica in replicas:
+                node = self._storage_nodes.get(replica.node_id)
+                if node:
+                    is_available = node.state == NodeState.UP
+                    result.append((node, is_available))
+                else:
+                    # Nodo no registrado - crear info temporal
+                    orphan_node = NodeInfo(
+                        node_id=replica.node_id,
+                        node_type=NodeType.STORAGE,
+                        host="unknown",
+                        port=5001,
+                        state=NodeState.DOWN
+                    )
+                    result.append((orphan_node, False))
+            
+            return result
     
     def get_primary_replica(self, file_id: str) -> Optional[Tuple[ReplicaInfo, NodeInfo]]:
         """Obtiene la réplica primaria de un archivo"""
