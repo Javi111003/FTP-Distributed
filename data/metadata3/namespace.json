@@ -1,6 +1,6 @@
 {
   "/": {
-    "file_id": "ff35056a-9e3c-4cb0-a659-15273478edb5",
+    "file_id": "8bc458c9-5735-4550-8ff1-28c70393dee8",
     "path": "/",
     "name": "/",
     "size": 0,
@@ -8,10 +8,179 @@
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1767976177.919493,
-    "modified_at": 1767976177.9194932,
+    "created_at": 1767982306.5053766,
+    "modified_at": 1767982306.5053768,
     "is_directory": true,
     "replicas": [],
+    "checksum": null
+  },
+  "/admin": {
+    "file_id": "224cb30a-a46a-4303-97f7-dff5620f608a",
+    "path": "/admin",
+    "name": "admin",
+    "size": 0,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767983150.456549,
+    "modified_at": 1767983150.4565496,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/admin/perro": {
+    "file_id": "0df13978-c53c-4cd9-8fbd-d89cb0f07ae6",
+    "path": "/admin/perro",
+    "name": "perro",
+    "size": 0,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767817624.6599863,
+    "modified_at": 1767817624.659987,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/admin/perro/ftp23.pdf": {
+    "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
+    "path": "/admin/perro/ftp23.pdf",
+    "name": "ftp23.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767817671.413832,
+    "modified_at": 1767817671.5520606,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/usuario1": {
+    "file_id": "1c1b21b7-338d-42d7-8b31-d0ad679ede7b",
+    "path": "/usuario1",
+    "name": "usuario1",
+    "size": 0,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767816778.9367328,
+    "modified_at": 1767816778.9367335,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/usuario1/lol": {
+    "file_id": "23ac4bb7-0d63-4286-a675-55f2ca95cccf",
+    "path": "/usuario1/lol",
+    "name": "lol",
+    "size": 0,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767817475.0413117,
+    "modified_at": 1767817475.0413125,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/usuario1/lol/beltran.pdf": {
+    "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
+    "path": "/usuario1/lol/beltran.pdf",
+    "name": "beltran.pdf",
+    "size": 23186,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1767817641.69184,
+    "modified_at": 1767817641.9955714,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/usuario1/lol/ftp.pdf": {
+    "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
+    "path": "/usuario1/lol/ftp.pdf",
+    "name": "ftp.pdf",
+    "size": 23186,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1767817522.8780997,
+    "modified_at": 1767817523.2399065,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/admin/javier.pdf": {
+    "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+    "path": "/admin/javier.pdf",
+    "name": "javier.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767983188.9681568,
+    "modified_at": 1767983188.9855464,
+    "is_directory": false,
+    "replicas": [
+      "storage-2",
+      "storage-4",
+      "storage-1",
+      "storage-3"
+    ],
+    "checksum": null
+  },
+  "/admin/compartido.txt": {
+    "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+    "path": "/admin/compartido.txt",
+    "name": "compartido.txt",
+    "size": 6,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767983245.685692,
+    "modified_at": 1767983245.7014878,
+    "is_directory": false,
+    "replicas": [
+      "storage-2",
+      "storage-4",
+      "storage-1",
+      "storage-3"
+    ],
+    "checksum": null
+  },
+  "/admin/holamundo1.pdf": {
+    "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
+    "path": "/admin/holamundo1.pdf",
+    "name": "holamundo1.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767985718.356709,
+    "modified_at": 1767985718.4462564,
+    "is_directory": false,
+    "replicas": [
+      "storage-3",
+      "storage-1"
+    ],
     "checksum": null
   }
 }

@@ -1,6 +1,6 @@
 {
-  "checksum": "c4a5d2cad70ae96b720f7fc45f9221e3",
-  "commit_index": 8,
+  "checksum": "8f370874be0926630d96f95fd09b4cbd",
+  "commit_index": 18,
   "locks": {
     "read_locks": {},
     "write_locks": {}
@@ -8,11 +8,11 @@
   "namespace": {
     "/": {
       "checksum": null,
-      "created_at": 1767814945.6364515,
-      "file_id": "34d3865f-bb7f-40fd-b484-5c03c0812354",
+      "created_at": 1767982306.5053766,
+      "file_id": "8bc458c9-5735-4550-8ff1-28c70393dee8",
       "group": "users",
       "is_directory": true,
-      "modified_at": 1767814945.6364517,
+      "modified_at": 1767982306.5053768,
       "name": "/",
       "owner": "root",
       "path": "/",
@@ -23,11 +23,11 @@
     },
     "/admin": {
       "checksum": null,
-      "created_at": 1767817582.079364,
-      "file_id": "0da402ba-4870-4038-a1bf-17f531c2cd77",
+      "created_at": 1767983150.456549,
+      "file_id": "224cb30a-a46a-4303-97f7-dff5620f608a",
       "group": "users",
       "is_directory": true,
-      "modified_at": 1767817582.0793645,
+      "modified_at": 1767983150.4565496,
       "name": "admin",
       "owner": "admin",
       "path": "/admin",
@@ -35,6 +35,64 @@
       "replicas": [],
       "size": 0,
       "version": 1
+    },
+    "/admin/compartido.txt": {
+      "checksum": null,
+      "created_at": 1767983245.685692,
+      "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767983245.7014878,
+      "name": "compartido.txt",
+      "owner": "admin",
+      "path": "/admin/compartido.txt",
+      "permissions": 6,
+      "replicas": [
+        "storage-2",
+        "storage-4",
+        "storage-1",
+        "storage-3"
+      ],
+      "size": 6,
+      "version": 2
+    },
+    "/admin/holamundo1.pdf": {
+      "checksum": null,
+      "created_at": 1767985718.356709,
+      "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767985718.4462564,
+      "name": "holamundo1.pdf",
+      "owner": "admin",
+      "path": "/admin/holamundo1.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-3",
+        "storage-1"
+      ],
+      "size": 23186,
+      "version": 2
+    },
+    "/admin/javier.pdf": {
+      "checksum": null,
+      "created_at": 1767983188.9681568,
+      "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767983188.9855464,
+      "name": "javier.pdf",
+      "owner": "admin",
+      "path": "/admin/javier.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-2",
+        "storage-4",
+        "storage-1",
+        "storage-3"
+      ],
+      "size": 23186,
+      "version": 2
     },
     "/admin/perro": {
       "checksum": null,
@@ -140,10 +198,48 @@
           "checksum": null,
           "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
           "is_primary": true,
-          "last_sync": 1767817671.4160364,
+          "last_sync": 1767985531.306519,
           "node_id": "storage-1",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
+        }
+      ],
+      "39335a24-8f14-4133-b114-1ea2c78e4d18": [
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": true,
+          "last_sync": 1767985535.8519664,
+          "node_id": "storage-2",
+          "size": 6,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": false,
+          "last_sync": 1767985535.8519676,
+          "node_id": "storage-4",
+          "size": 6,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": false,
+          "last_sync": 1767985535.851968,
+          "node_id": "storage-1",
+          "size": 6,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": false,
+          "last_sync": 1767985535.8519685,
+          "node_id": "storage-3",
+          "size": 6,
+          "version": 2
         }
       ],
       "401ec3a9-0bb4-45dc-9f04-afc5f5101446": [
@@ -151,10 +247,10 @@
           "checksum": null,
           "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
           "is_primary": true,
-          "last_sync": 1767817522.8789449,
+          "last_sync": 1767985531.306548,
           "node_id": "storage-1",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 3
         }
       ],
       "4398704a-5c7b-4765-bd59-2db95fc63661": [
@@ -162,22 +258,107 @@
           "checksum": null,
           "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
           "is_primary": true,
-          "last_sync": 1767817641.693635,
+          "last_sync": 1767985531.3065429,
+          "node_id": "storage-1",
+          "size": 23186,
+          "version": 3
+        }
+      ],
+      "4e587f33-b78d-4c5f-896a-27e5769f163a": [
+        {
+          "checksum": null,
+          "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
+          "is_primary": true,
+          "last_sync": 1767985718.3593512,
+          "node_id": "storage-3",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
+          "is_primary": false,
+          "last_sync": 1767985718.3593552,
           "node_id": "storage-1",
           "size": 0,
           "version": 1
+        }
+      ],
+      "baa80d38-1604-4973-9b11-a4f4898cc881": [
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": true,
+          "last_sync": 1767985535.8512573,
+          "node_id": "storage-2",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": false,
+          "last_sync": 1767985535.851259,
+          "node_id": "storage-4",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": false,
+          "last_sync": 1767985535.8512595,
+          "node_id": "storage-1",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": false,
+          "last_sync": 1767985535.8512597,
+          "node_id": "storage-3",
+          "size": 23186,
+          "version": 2
         }
       ]
     },
     "storage_nodes": {
       "storage-1": {
         "host": "storage1",
-        "last_heartbeat": 1767817671.4599748,
+        "last_heartbeat": 1767985718.411315,
         "metadata": {},
         "node_id": "storage-1",
         "node_type": "STORAGE",
         "port": 5001,
         "state": "UP"
+      },
+      "storage-2": {
+        "host": "storage2",
+        "last_heartbeat": 1767985701.5316465,
+        "metadata": {},
+        "node_id": "storage-2",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "DOWN"
+      },
+      "storage-3": {
+        "host": "storage3",
+        "last_heartbeat": 1767985718.4054077,
+        "metadata": {},
+        "node_id": "storage-3",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      },
+      "storage-4": {
+        "host": "storage4",
+        "last_heartbeat": 1767985691.509124,
+        "metadata": {},
+        "node_id": "storage-4",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "DOWN"
       }
     }
   },

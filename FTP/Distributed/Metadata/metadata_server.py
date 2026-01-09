@@ -362,13 +362,18 @@ class MetadataServer:
             try:
                 with self.leader_election._lock:
                     peers_copy = dict(self.leader_election._peers)
-                
+
                 for peer in peers_copy.values():
                     # Verificar estado del peer antes de enviar heartbeat
                     peer_state = self.heartbeat_manager.get_node_state(peer.node_id)
+
                     if peer_state == NodeState.DOWN:
-                        continue  # Saltar nodos caídos
-                    
+                        # *** NUEVO: Intentar reconectar con peers DOWN cada 10 segundos ***
+                        if time.time() % 10 < HEARTBEAT_INTERVAL:  # Cada ~10 segundos
+                            self._send_reconnection_heartbeat(peer)
+                        continue
+
+                    # Heartbeats normales para nodos UP/SUSPECT
                     try:
                         msg = RPCMessage(
                             MessageType.HEARTBEAT,
@@ -379,11 +384,70 @@ class MetadataServer:
                         # Silenciar errores de DNS que son esperados cuando un nodo está DOWN
                         if "Temporary failure in name resolution" not in str(e):
                             logger.debug(f"Heartbeat to {peer.node_id} failed: {e}")
-                
+
                 time.sleep(HEARTBEAT_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in metadata heartbeat loop: {e}")
-    
+
+    def _send_reconnection_heartbeat(self, peer: NodeInfo):
+        """Envía heartbeat de reconexión a un peer marcado como DOWN"""
+        try:
+            msg = RPCMessage(
+                MessageType.HEARTBEAT,
+                {
+                    'node_id': self.node_id,
+                    'timestamp': time.time(),
+                    'reconnection_attempt': True  # Indica que es intento de reconexión
+                }
+            )
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+
+            if response:
+                logger.warning(f"🔗🔗🔗 RECONNECTED with DOWN peer {peer.node_id}! 🔗🔗🔗")
+                # Marcar como UP inmediatamente (esto activará _on_node_up)
+                self.heartbeat_manager.receive_heartbeat(peer.node_id)
+                # Activar verificación de split-brain
+                threading.Thread(
+                    target=self._check_reconnected_peer_for_split_brain,
+                    args=(peer,),
+                    daemon=True
+                ).start()
+
+        except Exception as e:
+            # Silenciar errores de reconexión fallida (muy común)
+            pass
+
+    def _check_reconnected_peer_for_split_brain(self, peer: NodeInfo):
+        """Verifica split-brain con un peer que acaba de reconectarse"""
+        try:
+            logger.info(f"🔍 Checking split-brain with reconnected peer {peer.node_id}...")
+
+            # Consultar estado de líder del peer
+            msg = RPCMessage(MessageType.LEADER_QUERY, {})
+            response = self._rpc_client.call(peer.host, peer.port, msg)
+
+            if response:
+                peer_leader_id = response.payload.get('leader_id')
+                peer_term = response.payload.get('term', 0)
+
+                logger.info(
+                    f"🔍 Peer {peer.node_id} reports: leader={peer_leader_id}, term={peer_term} | "
+                    f"We have: leader={self.leader_election.get_leader_id()}, term={self.leader_election.get_term()}"
+                )
+
+                # Verificar split-brain
+                if self.split_brain_reconciliation.detect_split_brain(peer, peer_term, peer_leader_id):
+                    logger.warning(f"⚠️⚠️⚠️ SPLIT-BRAIN DETECTED after reconnection! ⚠️⚠️⚠️")
+                    # Obtener todos los peers para reconciliación
+                    with self.leader_election._lock:
+                        all_peers = list(self.leader_election._peers.values())
+                    self.split_brain_reconciliation.initiate_reconciliation(all_peers)
+                else:
+                    logger.info(f"✅ No split-brain with reconnected peer {peer.node_id}")
+
+        except Exception as e:
+            logger.warning(f"Could not check split-brain with reconnected peer {peer.node_id}: {e}")
+
     # === Callbacks ===
     
     def _on_become_leader(self):
@@ -832,9 +896,20 @@ class MetadataServer:
 
     def _on_node_up(self, node_id: str):
         """Callback cuando un nodo se recupera"""
-        logger.info(f"Node recovered: {node_id}")
+        logger.info(f"🟢 Node recovered: {node_id}")
         self.replica_manager.update_node_state(node_id, NodeState.UP)
-        
+
+        # *** NUEVO: Verificar split-brain para nodos metadata recuperados ***
+        if node_id.startswith('metadata-'):
+            logger.warning(f"🔗 METADATA NODE RECOVERED: {node_id} - Activating split-brain check...")
+            peer_node = self.leader_election._peers.get(node_id)
+            if peer_node:
+                threading.Thread(
+                    target=self._check_reconnected_peer_for_split_brain,
+                    args=(peer_node,),
+                    daemon=True
+                ).start()
+
         # Si es un storage y somos líder, verificar si necesita sincronización
         if node_id.startswith('storage-') and self.leader_election.is_leader():
             node = self.replica_manager.get_storage_node(node_id)

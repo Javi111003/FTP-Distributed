@@ -1,11 +1,29 @@
 {
   "admin": {
     "username": "admin",
-    "password_hash": "$2b$12$nfD7bnQEhSvRarE1Bh6wW.aUwc9NzphyW1UDR7metRM1ujtclHS5W",
+    "password_hash": "$2b$12$MUXBgB.pYZmjsMNq1lopBuW83kBBtdjPoU5bj.DN2e8SmCO/j/0X2",
     "home_dir": "/admin",
     "groups": [
       "users"
     ],
     "is_admin": true
+  },
+  "usuario1": {
+    "username": "usuario1",
+    "password_hash": "$2b$12$MUXBgB.pYZmjsMNq1lopBuW83kBBtdjPoU5bj.DN2e8SmCO/j/0X2",
+    "home_dir": "/usuario1",
+    "groups": [
+      "users"
+    ],
+    "is_admin": false
+  },
+  "usuario2": {
+    "username": "usuario2",
+    "password_hash": "$2b$12$MPO5aDvkRXwWzgF1YFZUNuoq.nSTzi91/TxkUm.HFs3e4hTaaeDrW",
+    "home_dir": "/usuario2",
+    "groups": [
+      "users"
+    ],
+    "is_admin": false
   }
 }

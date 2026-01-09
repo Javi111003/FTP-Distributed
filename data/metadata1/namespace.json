@@ -1,6 +1,6 @@
 {
   "/": {
-    "file_id": "34d3865f-bb7f-40fd-b484-5c03c0812354",
+    "file_id": "8bc458c9-5735-4550-8ff1-28c70393dee8",
     "path": "/",
     "name": "/",
     "size": 0,
@@ -8,14 +8,14 @@
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1767814945.6364515,
-    "modified_at": 1767814945.6364517,
+    "created_at": 1767982306.5053766,
+    "modified_at": 1767982306.5053768,
     "is_directory": true,
     "replicas": [],
     "checksum": null
   },
   "/admin": {
-    "file_id": "0da402ba-4870-4038-a1bf-17f531c2cd77",
+    "file_id": "224cb30a-a46a-4303-97f7-dff5620f608a",
     "path": "/admin",
     "name": "admin",
     "size": 0,
@@ -23,8 +23,8 @@
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1767817582.079364,
-    "modified_at": 1767817582.0793645,
+    "created_at": 1767983150.456549,
+    "modified_at": 1767983150.4565496,
     "is_directory": true,
     "replicas": [],
     "checksum": null
@@ -125,27 +125,28 @@
     ],
     "checksum": null
   },
-  "/admin/kendry.pdf": {
-    "file_id": "37cf4934-2ef7-47e7-b6ff-dc5d68e3457f",
-    "path": "/admin/kendry.pdf",
-    "name": "kendry.pdf",
+  "/admin/javier.pdf": {
+    "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+    "path": "/admin/javier.pdf",
+    "name": "javier.pdf",
     "size": 23186,
     "owner": "admin",
     "group": "users",
     "permissions": 6,
     "version": 2,
-    "created_at": 1767983185.6554363,
-    "modified_at": 1767983186.0134423,
+    "created_at": 1767983188.9681568,
+    "modified_at": 1767983188.9855464,
     "is_directory": false,
     "replicas": [
-      "storage-3",
+      "storage-2",
+      "storage-4",
       "storage-1",
-      "storage-4"
+      "storage-3"
     ],
     "checksum": null
   },
   "/admin/compartido.txt": {
-    "file_id": "596190aa-ac04-44b9-8502-0e7851ae2b51",
+    "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
     "path": "/admin/compartido.txt",
     "name": "compartido.txt",
     "size": 6,
@@ -153,12 +154,33 @@
     "group": "users",
     "permissions": 6,
     "version": 2,
-    "created_at": 1767983218.1994276,
-    "modified_at": 1767983218.234949,
+    "created_at": 1767983245.685692,
+    "modified_at": 1767983245.7014878,
+    "is_directory": false,
+    "replicas": [
+      "storage-2",
+      "storage-4",
+      "storage-1",
+      "storage-3"
+    ],
+    "checksum": null
+  },
+  "/admin/holamundo1.pdf": {
+    "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
+    "path": "/admin/holamundo1.pdf",
+    "name": "holamundo1.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1767985718.356709,
+    "modified_at": 1767985718.487842,
     "is_directory": false,
     "replicas": [
       "storage-3",
       "storage-1",
+      "storage-2",
       "storage-4"
     ],
     "checksum": null
