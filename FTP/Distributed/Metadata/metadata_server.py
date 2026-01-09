@@ -654,6 +654,33 @@ class MetadataServer:
                     daemon=True
                 ).start()
     
+    def _replicate_storage_registration(self, storage_node: NodeInfo):
+        """
+        Replica el registro de un storage node a todos los followers.
+        Esto asegura que todos los metadata tengan la misma lista de storage nodes.
+        """
+        with self.leader_election._lock:
+            peers = list(self.leader_election._peers.values())
+        
+        if not peers:
+            return
+        
+        logger.info(f"📤 Replicating storage registration {storage_node.node_id} to {len(peers)} peers")
+        
+        for peer in peers:
+            try:
+                msg = RPCMessage(
+                    MessageType.REGISTER_NODE,
+                    {
+                        'node': storage_node.to_dict(),
+                        'from_leader': True  # Indica que viene del líder
+                    }
+                )
+                self._rpc_client.call(peer.host, peer.port, msg, timeout=3)
+                logger.debug(f"Replicated storage {storage_node.node_id} to {peer.node_id}")
+            except Exception as e:
+                logger.warning(f"Failed to replicate storage registration to {peer.node_id}: {e}")
+
     def _sync_files_to_new_storage(self, new_node: NodeInfo):
         """
         Sincroniza archivos a un nuevo storage node.
@@ -965,11 +992,33 @@ class MetadataServer:
             
             # Registrar según tipo
             if node.node_type == NodeType.STORAGE:
-                logger.info(f"💾 STORAGE NODE REGISTERED: {node.node_id} @ {node.host}:{node.port}")
+                # Verificar si viene del líder (replicación)
+                from_leader = msg.payload.get('from_leader', False)
+                
+                # Si NO somos líder y NO viene del líder, reenviar el registro al líder
+                if not self.leader_election.is_leader() and not from_leader:
+                    leader = self.leader_election.get_leader()
+                    if leader and leader.node_id != self.node_id:
+                        logger.info(f"📤 Forwarding STORAGE registration {node.node_id} to leader {leader.node_id}")
+                        try:
+                            forward_response = self._rpc_client.call(leader.host, leader.port, msg, timeout=5)
+                            if forward_response:
+                                # Aún así registramos localmente para heartbeats
+                                self.replica_manager.register_storage_node(node)
+                                self.heartbeat_manager.register_node(node)
+                                return forward_response
+                        except Exception as e:
+                            logger.warning(f"Failed to forward registration to leader: {e}")
+                            # Continuar con registro local como fallback
+                
+                logger.info(f"💾 STORAGE NODE REGISTERED: {node.node_id} @ {node.host}:{node.port} (from_leader={from_leader})")
                 self.replica_manager.register_storage_node(node)
                 
-                # Si somos líder, iniciar sincronización proactiva para el nuevo storage
-                if self.leader_election.is_leader():
+                # Si somos líder y NO es replicación, replicar el registro a los followers
+                if self.leader_election.is_leader() and not from_leader:
+                    # Replicar registro de storage a todos los peers
+                    self._replicate_storage_registration(node)
+                    
                     threading.Thread(
                         target=self._sync_files_to_new_storage,
                         args=(node,),

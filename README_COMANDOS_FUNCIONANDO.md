@@ -17,7 +17,7 @@ docker rm -f $(docker ps -aq 2>/dev/null) 2>/dev/null || true
 docker network rm ftp-distributed-net 2>/dev/null || true
 
 # Crear nueva red Docker
-docker network create ftp-distributed-net --subnet=172.20.0.0/16
+docker network create --driver overlay ftp-distributed-net --subnet=172.20.0.0/16 --attachable
 ```
 
 ---

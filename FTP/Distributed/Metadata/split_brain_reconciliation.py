@@ -264,11 +264,53 @@ class SplitBrainReconciliation:
                 # Merge namespace (archivos)
                 self._merge_peer_namespace(peer_id, peer_state)
                 
+                # Merge storage nodes registrados
+                self._merge_peer_storage_nodes(peer_id, peer_state)
+                
                 # Merge oplog si está disponible
                 self._merge_peer_oplog(peer_id, peer_state)
                 
             except Exception as e:
                 logger.error(f"Error merging state from {peer_id}: {e}")
+    
+    def _merge_peer_storage_nodes(self, peer_id: str, peer_state: Dict):
+        """
+        Merge los storage nodes registrados en un peer con los nuestros.
+        Esto asegura que después de una partición de red, todos los metadata
+        tengan la misma lista de storage nodes.
+        """
+        snapshot = peer_state.get('snapshot', {})
+        # El snapshot guarda replica_manager.export_state() bajo la key 'replicas'
+        # que contiene {'replicas': {...}, 'storage_nodes': {...}}
+        peer_storage_nodes = snapshot.get('replicas', {}).get('storage_nodes', {})
+        
+        if not peer_storage_nodes:
+            return
+        
+        logger.info(f"📦 Merging {len(peer_storage_nodes)} storage nodes from {peer_id}")
+        
+        from ..Common.models import NodeInfo
+        from ..Common.constants import NodeState
+        
+        for node_id, node_dict in peer_storage_nodes.items():
+            try:
+                # Verificar si ya tenemos este storage registrado
+                existing_node = self.metadata_server.replica_manager.get_storage_node(node_id)
+                
+                if existing_node is None:
+                    # No tenemos este storage, agregarlo
+                    node = NodeInfo.from_dict(node_dict)
+                    # Marcar como UP inicialmente, el heartbeat manager actualizará el estado
+                    node.state = NodeState.UP
+                    
+                    logger.info(f"➕ Adding storage node {node_id} from peer {peer_id}")
+                    self.metadata_server.replica_manager.register_storage_node(node)
+                    self.metadata_server.heartbeat_manager.register_node(node)
+                else:
+                    logger.debug(f"Storage node {node_id} already registered")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to merge storage node {node_id}: {e}")
     
     def _merge_peer_namespace(self, peer_id: str, peer_state: Dict):
         """

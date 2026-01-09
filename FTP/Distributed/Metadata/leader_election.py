@@ -3,13 +3,14 @@ Elección de líder para el servicio de Metadata.
 Implementa un algoritmo simple de elección de líder basado en IDs.
 """
 import time
+import random
 import threading
 import logging
 from typing import Dict, Optional, List, Callable
 from ..Common.models import NodeInfo
 from ..Common.constants import (
     NodeState, NodeType, MessageType,
-    LEADER_ELECTION_TIMEOUT, HEARTBEAT_INTERVAL
+    LEADER_ELECTION_TIMEOUT, HEARTBEAT_INTERVAL, LEADER_LEASE_TIME
 )
 from ..Common.rpc_protocol import RPCClient, RPCMessage
 
@@ -40,6 +41,8 @@ class LeaderElection:
         self._last_leader_heartbeat = 0
         self._missed_heartbeats = 0  # Contador de heartbeats perdidos
         self._election_in_progress = False  # Flag para evitar elecciones concurrentes
+        self._became_leader_at = 0  # Timestamp de cuando se convirtió en líder
+        self._last_election_attempt = 0  # Timestamp de última elección intentada
         
         self._running = False
         self._election_thread: Optional[threading.Thread] = None
@@ -155,33 +158,44 @@ class LeaderElection:
         with self._lock:
             # Detectar split-brain: si somos líder y recibimos anuncio de otro líder
             if self._is_leader and leader_id != self.node_id:
+                time_as_leader = time.time() - self._became_leader_at
+                lease_active = time_as_leader < LEADER_LEASE_TIME
+                
                 if term == self._term:
                     # Mismo término, dos líderes = split-brain
                     logger.warning(
                         f"🔴 SPLIT-BRAIN: I am leader but received announcement from {leader_id} "
-                        f"with same term {term}. Lower ID should win."
+                        f"with same term {term}. Lower ID should win. Lease active: {lease_active}"
                     )
-                    # El de menor ID gana
+                    # El de menor ID gana (siempre, independiente del lease)
                     if leader_id < self.node_id:
                         logger.warning(f"Stepping down in favor of {leader_id} (lower ID)")
                         self._is_leader = False
                         self._current_leader = leader_id
+                        self._last_leader_heartbeat = time.time()
+                        self._missed_heartbeats = 0
                     else:
-                        logger.info(f"Rejecting announcement from {leader_id} (higher ID)")
+                        logger.info(f"Rejecting announcement from {leader_id} (higher ID, I stay leader)")
                         return  # Ignorar el anuncio
                 elif term < self._term:
                     # Término más bajo, ignorar
                     logger.debug(f"Ignoring leader announcement with lower term {term} < {self._term}")
                     return
+                else:
+                    # Término mayor - el nuevo líder tiene prioridad
+                    logger.warning(f"Stepping down: higher term {term} > {self._term}")
+                    self._is_leader = False
             
             if term >= self._term:
                 old_leader = self._current_leader
                 self._term = term
                 self._current_leader = leader_id
                 self._last_leader_heartbeat = time.time()
+                self._missed_heartbeats = 0
                 
                 if leader_id == self.node_id:
                     self._is_leader = True
+                    self._became_leader_at = time.time()
                 else:
                     self._is_leader = False
                 
@@ -212,6 +226,12 @@ class LeaderElection:
                 logger.debug("Election already in progress, skipping")
                 return
             
+            # Evitar elecciones muy frecuentes (cooldown)
+            time_since_last_election = time.time() - self._last_election_attempt
+            if time_since_last_election < HEARTBEAT_INTERVAL * 2:
+                logger.debug(f"Election cooldown active, skipping")
+                return
+            
             # PRIMERO: Verificar si ya hay un líder activo
             if self._current_leader and self._current_leader != self.node_id:
                 # Hay un líder conocido, verificar si está vivo
@@ -223,16 +243,20 @@ class LeaderElection:
                 
                 # Incrementar contador de heartbeats perdidos
                 self._missed_heartbeats += 1
-                if self._missed_heartbeats < 3:  # Requerir 3 fallos consecutivos
+                if self._missed_heartbeats < 5:  # Requerir 5 fallos consecutivos (más estricto)
                     logger.debug(f"Leader timeout but only {self._missed_heartbeats} missed heartbeats")
                     return
             
             self._election_in_progress = True
+            self._last_election_attempt = time.time()
             self._term += 1
             current_term = self._term
             peers_copy = dict(self._peers)
         
-        logger.info(f"Starting election for term {current_term}")
+        # Espera aleatoria para evitar colisiones de elección (0-2 segundos)
+        random_delay = random.uniform(0, 2.0)
+        logger.info(f"Starting election for term {current_term} (delay: {random_delay:.2f}s)")
+        time.sleep(random_delay)
         
         try:
             # Enviar mensaje de elección a todos los peers con ID menor
@@ -278,9 +302,11 @@ class LeaderElection:
             old_leader = self._current_leader
             self._current_leader = self.node_id
             self._is_leader = True
+            self._became_leader_at = time.time()
+            self._missed_heartbeats = 0  # Reset contador
             peers_copy = dict(self._peers)
         
-        logger.info(f"Node {self.node_id} became leader (term {self._term})")
+        logger.info(f"🟢 Node {self.node_id} became leader (term {self._term})")
         
         # Anunciar a todos los peers
         for peer in peers_copy.values():

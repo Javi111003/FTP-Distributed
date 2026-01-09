@@ -18,7 +18,8 @@ MIN_REPLICAS_FOR_WRITE = 2  # Mínimo de réplicas confirmadas para éxito
 HEARTBEAT_INTERVAL = 5
 HEARTBEAT_TIMEOUT = 30
 RPC_TIMEOUT = 10
-LEADER_ELECTION_TIMEOUT = 10
+LEADER_ELECTION_TIMEOUT = 15  # Aumentado para mayor estabilidad
+LEADER_LEASE_TIME = 30        # Tiempo mínimo de estabilidad de un líder
 SYNC_TIMEOUT = 60
 
 # Estados de nodos

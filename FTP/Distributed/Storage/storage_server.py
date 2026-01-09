@@ -173,21 +173,53 @@ class StorageServer:
         self.rpc_server.stop()
         logger.info("Storage server stopped")
     
+    def _discover_leader(self) -> tuple:
+        """Descubre el líder actual consultando a los metadata conocidos"""
+        metadata_hosts = [self.metadata_host, 'metadata1', 'metadata2', 'metadata3']
+        
+        for host in metadata_hosts:
+            try:
+                leader_query = RPCMessage(MessageType.LEADER_QUERY, {})
+                response = self._rpc_client.call(host, self.metadata_port, leader_query)
+                if response:
+                    leader_host = response.payload.get('leader_host')
+                    leader_port = response.payload.get('leader_port')
+                    if leader_host and leader_port:
+                        logger.info(f"Discovered leader: {leader_host}:{leader_port}")
+                        return (leader_host, leader_port)
+            except Exception as e:
+                logger.debug(f"Failed to query leader from {host}: {e}")
+                continue
+        
+        return (self.metadata_host, self.metadata_port)
+
     def _register_with_metadata(self):
-        """Se registra con el servicio de metadata"""
+        """Se registra con el servicio de metadata (preferentemente con el líder)"""
         max_retries = 10
+        
         for attempt in range(max_retries):
             try:
+                # Primero intentar descubrir el líder
+                leader_host, leader_port = self._discover_leader()
+                
                 msg = RPCMessage(
                     MessageType.REGISTER_NODE,
                     {'node': self.node_info.to_dict()}
                 )
-                response = self._rpc_client.call(
-                    self.metadata_host, self.metadata_port, msg
-                )
+                
+                # Intentar registrarse con el líder
+                response = self._rpc_client.call(leader_host, leader_port, msg)
                 if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
-                    logger.info("Registered with metadata service")
+                    logger.info(f"✅ Registered with metadata leader at {leader_host}:{leader_port}")
                     return
+                
+                # Si falla, intentar con el alias DNS
+                if leader_host != self.metadata_host:
+                    response = self._rpc_client.call(self.metadata_host, self.metadata_port, msg)
+                    if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                        logger.info(f"✅ Registered with metadata service (fallback)")
+                        return
+                        
             except Exception as e:
                 logger.warning(f"Failed to register with metadata (attempt {attempt+1}): {e}")
             time.sleep(2)
