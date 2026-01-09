@@ -9,7 +9,7 @@ import logging
 import hashlib
 from typing import Dict, List, Optional, Tuple, Any, Set
 from ..Common.models import NodeInfo, FileMetadata
-from ..Common.constants import NodeType, MessageType, DistributedResponseCode
+from ..Common.constants import NodeType, NodeState, MessageType, DistributedResponseCode
 from ..Common.rpc_protocol import RPCClient, RPCMessage
 
 logger = logging.getLogger(__name__)
@@ -22,8 +22,8 @@ class SplitBrainReconciliation:
     Cuando la red se particiona, cada partición puede elegir su propio líder
     y continuar operando. Al reconectar, este módulo:
     1. Detecta la presencia de múltiples líderes
-    2. Resuelve el conflicto (líder con menor ID o mayor término gana)
-    3. Sincroniza y merge los oplogs divergentes
+    2. Resuelve el conflicto usando criterios claros (más datos, menor ID)
+    3. Sincroniza completamente storage_nodes, namespace y réplicas
     4. Versiona automáticamente archivos con conflictos
     """
     
@@ -36,64 +36,54 @@ class SplitBrainReconciliation:
         # Tracking de reconciliaciones en progreso
         self._reconciliation_in_progress = False
         self._last_reconciliation = 0
-        self._reconciliation_cooldown = 10  # segundos
+        self._reconciliation_cooldown = 15  # segundos - aumentado para estabilidad
         
-        # Historial de términos vistos (para detectar split-brain)
-        self._seen_terms: Dict[str, int] = {}  # node_id -> term
+        # Historial de términos vistos
+        self._seen_terms: Dict[str, int] = {}
         
     def detect_split_brain(self, peer_node: NodeInfo, peer_term: int, peer_leader_id: str) -> bool:
         """
         Detecta si hay un split-brain comparando el estado del peer con el nuestro.
-        
-        Returns:
-            True si se detecta split-brain (múltiples líderes activos)
         """
         with self._lock:
             my_term = self.metadata_server.leader_election.get_term()
             my_leader_id = self.metadata_server.leader_election.get_leader_id()
             am_i_leader = self.metadata_server.leader_election.is_leader()
             
-            # Casos de split-brain:
-            # 1. Ambos somos líderes con el mismo término
-            if am_i_leader and peer_leader_id == peer_node.node_id and peer_term == my_term:
+            # Caso 1: Ambos somos líderes
+            if am_i_leader and peer_leader_id == peer_node.node_id:
                 logger.warning(
                     f"🔴 SPLIT-BRAIN DETECTED: Both {self.node_id} and {peer_node.node_id} "
-                    f"are leaders in term {my_term}"
+                    f"claim to be leaders (my term: {my_term}, peer term: {peer_term})"
                 )
                 return True
             
-            # 2. Yo soy líder pero hay otro líder con término similar
-            if am_i_leader and peer_leader_id != self.node_id and peer_leader_id != my_leader_id:
-                if abs(peer_term - my_term) <= 2:  # Términos cercanos = partición reciente
+            # Caso 2: Yo soy líder pero hay otro líder reportado
+            if am_i_leader and peer_leader_id and peer_leader_id != self.node_id:
+                if peer_leader_id != my_leader_id:
                     logger.warning(
-                        f"🔴 SPLIT-BRAIN DETECTED: I am leader (term {my_term}) but peer "
-                        f"reports different leader {peer_leader_id} (term {peer_term})"
+                        f"🔴 SPLIT-BRAIN DETECTED: I am leader but peer reports "
+                        f"different leader {peer_leader_id}"
                     )
                     return True
             
-            # 3. Términos divergentes con líderes diferentes
+            # Caso 3: Líderes diferentes reportados
             if peer_leader_id and my_leader_id and peer_leader_id != my_leader_id:
-                if peer_term >= my_term - 1:  # Dentro de 1 término = posible partición
-                    logger.warning(
-                        f"🔴 SPLIT-BRAIN DETECTED: Different leaders with close terms. "
-                        f"My leader: {my_leader_id} (term {my_term}), "
-                        f"Peer leader: {peer_leader_id} (term {peer_term})"
-                    )
-                    return True
+                logger.warning(
+                    f"🔴 SPLIT-BRAIN DETECTED: Different leaders. "
+                    f"My leader: {my_leader_id}, Peer's leader: {peer_leader_id}"
+                )
+                return True
             
             return False
     
     def initiate_reconciliation(self, peer_nodes: List[NodeInfo]):
-        """
-        Inicia el proceso de reconciliación con los peers.
-        """
+        """Inicia el proceso de reconciliación con los peers."""
         with self._lock:
-            # Evitar reconciliaciones concurrentes
             if self._reconciliation_in_progress:
                 logger.info("Reconciliation already in progress, skipping")
                 return
             
-            # Cooldown para evitar reconciliaciones frecuentes
             time_since_last = time.time() - self._last_reconciliation
             if time_since_last < self._reconciliation_cooldown:
                 logger.debug(f"Reconciliation cooldown: {self._reconciliation_cooldown - time_since_last:.1f}s remaining")
@@ -113,27 +103,30 @@ class SplitBrainReconciliation:
     def _reconciliation_worker(self, peer_nodes: List[NodeInfo]):
         """Worker thread que ejecuta la reconciliación"""
         try:
-            # Paso 1: Recolectar estado de todos los peers
+            # Paso 1: Recolectar estado completo de todos los peers
             peer_states = self._collect_peer_states(peer_nodes)
             
             if not peer_states:
                 logger.info("No peers responded, skipping reconciliation")
                 return
             
-            # Paso 2: Determinar el líder canónico
+            # Paso 2: Determinar el líder canónico usando todos los criterios
             canonical_leader = self._determine_canonical_leader(peer_states)
             
             logger.info(f"✅ Canonical leader determined: {canonical_leader}")
             
-            # Paso 3: Si no soy el líder canónico, ceder
-            if canonical_leader != self.node_id:
-                self._step_down_as_leader(canonical_leader, peer_states)
-            else:
-                # Soy el líder canónico, merge estados de los demás
-                self._merge_peer_states(peer_states)
+            # Paso 3: Usar el leader_election para forzar el resultado
+            self._force_leader_election_result(canonical_leader, peer_states)
             
-            # Paso 4: Sincronizar con el nuevo líder
-            self._synchronize_with_leader(canonical_leader, peer_states)
+            # Paso 4: Sincronizar estado completo
+            if canonical_leader == self.node_id:
+                # Soy el líder canónico, merge estados de los demás
+                self._merge_all_peer_states(peer_states)
+                # Replicar mi estado a todos los followers
+                self._replicate_state_to_followers(peer_nodes)
+            else:
+                # No soy líder, sincronizar desde el líder
+                self._synchronize_with_leader(canonical_leader, peer_states)
             
             logger.info("✅ Split-brain reconciliation completed successfully")
             
@@ -144,37 +137,38 @@ class SplitBrainReconciliation:
                 self._reconciliation_in_progress = False
     
     def _collect_peer_states(self, peer_nodes: List[NodeInfo]) -> Dict[str, Dict]:
-        """
-        Recolecta el estado actual de cada peer (oplog, namespace, término, líder).
-        """
+        """Recolecta el estado completo de cada peer."""
         peer_states = {}
         
         for peer in peer_nodes:
             try:
-                # Consultar estado del peer
+                # Solicitar snapshot completo
                 msg = RPCMessage(
                     MessageType.REPL_SNAPSHOT,
-                    {'request_type': 'state_summary', 'requester_id': self.node_id}
+                    {'request_type': 'full_snapshot', 'requester_id': self.node_id}
                 )
                 
-                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=5)
+                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=10)
                 
                 if response and response.payload:
+                    snapshot = response.payload.get('snapshot', {})
+                    replica_state = snapshot.get('replicas', {})
+                    
                     peer_states[peer.node_id] = {
                         'node': peer,
                         'term': response.payload.get('term', 0),
                         'leader_id': response.payload.get('leader_id'),
                         'commit_index': response.payload.get('commit_index', -1),
-                        'oplog_length': response.payload.get('oplog_length', 0),
-                        'last_applied': response.payload.get('last_applied', -1),
-                        'file_count': response.payload.get('file_count', 0),
-                        'snapshot': response.payload.get('snapshot', {})
+                        'file_count': len(snapshot.get('namespace', {}).get('namespace', {})),
+                        'storage_count': len(replica_state.get('storage_nodes', {})),
+                        'snapshot': snapshot
                     }
+                    
                     logger.info(
-                        f"Collected state from {peer.node_id}: "
+                        f"📊 Collected state from {peer.node_id}: "
                         f"term={peer_states[peer.node_id]['term']}, "
-                        f"leader={peer_states[peer.node_id]['leader_id']}, "
-                        f"files={peer_states[peer.node_id]['file_count']}"
+                        f"files={peer_states[peer.node_id]['file_count']}, "
+                        f"storages={peer_states[peer.node_id]['storage_count']}"
                     )
             except Exception as e:
                 logger.warning(f"Failed to collect state from {peer.node_id}: {e}")
@@ -183,190 +177,208 @@ class SplitBrainReconciliation:
     
     def _determine_canonical_leader(self, peer_states: Dict[str, Dict]) -> str:
         """
-        Determina cuál debe ser el líder canónico después de la reconciliación.
+        Determina el líder canónico usando criterios claros.
         
-        Criterios (en orden de prioridad):
-        1. Nodo con mayor término
-        2. Si hay empate en término, el que tenga más operaciones (commit_index mayor)
-        3. Si aún hay empate, el nodo con menor ID (lexicográfico)
+        Criterios (en orden):
+        1. Mayor número total de datos (storage_count * 10 + file_count)
+        2. Mayor commit_index
+        3. Mayor término
+        4. Menor node_id (desempate lexicográfico)
         """
         # Incluir mi propio estado
-        my_state = {
+        my_data_state = self.metadata_server._get_data_state()
+        
+        all_candidates = [{
+            'node_id': self.node_id,
             'term': self.metadata_server.leader_election.get_term(),
-            'commit_index': self.metadata_server._commit_index,
-            'leader_id': self.metadata_server.leader_election.get_leader_id()
-        }
+            'commit_index': my_data_state.get('commit_index', -1),
+            'file_count': my_data_state.get('file_count', 0),
+            'storage_count': my_data_state.get('storage_count', 0),
+            'is_leader': self.metadata_server.leader_election.is_leader()
+        }]
         
-        all_states = {self.node_id: my_state}
-        all_states.update({nid: state for nid, state in peer_states.items()})
+        for node_id, state in peer_states.items():
+            all_candidates.append({
+                'node_id': node_id,
+                'term': state.get('term', 0),
+                'commit_index': state.get('commit_index', -1),
+                'file_count': state.get('file_count', 0),
+                'storage_count': state.get('storage_count', 0),
+                'is_leader': state.get('leader_id') == node_id
+            })
         
-        # Solo considerar nodos que se consideran líderes
-        leader_candidates = []
-        for node_id, state in all_states.items():
-            term = state.get('term', 0)
-            commit_index = state.get('commit_index', -1)
-            leader_id = state.get('leader_id')
-            
-            # Si este nodo se considera líder, es candidato
-            if leader_id == node_id:
-                leader_candidates.append((node_id, term, commit_index))
+        # Calcular score para cada candidato
+        for c in all_candidates:
+            c['score'] = (
+                c['storage_count'] * 100 +  # Storage nodes son muy importantes
+                c['file_count'] * 10 +
+                c['commit_index'] +
+                c['term'] * 1000  # Término tiene peso alto
+            )
         
-        if not leader_candidates:
-            # Nadie es líder, elegir el de mayor término
-            leader_candidates = [
-                (node_id, state.get('term', 0), state.get('commit_index', -1))
-                for node_id, state in all_states.items()
-            ]
+        # Ordenar: mayor score primero, menor node_id como desempate final
+        all_candidates.sort(key=lambda x: (-x['score'], x['node_id']))
         
-        # Ordenar por: término desc, commit_index desc, node_id asc
-        leader_candidates.sort(key=lambda x: (-x[1], -x[2], x[0]))
+        winner = all_candidates[0]['node_id']
         
-        canonical = leader_candidates[0][0]
+        logger.info(f"📊 Leader candidates by score:")
+        for c in all_candidates[:5]:  # Mostrar top 5
+            logger.info(
+                f"  {c['node_id']}: score={c['score']} "
+                f"(storages={c['storage_count']}, files={c['file_count']}, "
+                f"term={c['term']}, commit={c['commit_index']})"
+            )
         
-        logger.info(
-            f"Leader candidates: {leader_candidates}. "
-            f"Selected canonical leader: {canonical}"
-        )
-        
-        return canonical
+        return winner
     
-    def _step_down_as_leader(self, new_leader_id: str, peer_states: Dict[str, Dict]):
-        """
-        Si yo era líder pero perdí la reconciliación, cedo el liderazgo.
-        """
-        if not self.metadata_server.leader_election.is_leader():
-            return
+    def _force_leader_election_result(self, canonical_leader: str, peer_states: Dict[str, Dict]):
+        """Fuerza el resultado de la elección de líder."""
         
-        logger.warning(
-            f"⚠️ Stepping down as leader. New canonical leader: {new_leader_id}"
-        )
+        # Preparar estados para el force_reconciliation
+        election_states = {}
+        for node_id, state in peer_states.items():
+            election_states[node_id] = {
+                'term': state.get('term', 0),
+                'data_state': {
+                    'file_count': state.get('file_count', 0),
+                    'storage_count': state.get('storage_count', 0),
+                    'commit_index': state.get('commit_index', -1)
+                },
+                'is_leader': state.get('leader_id') == node_id
+            }
         
-        # Actualizar mi estado para reconocer al nuevo líder
-        with self.metadata_server.leader_election._lock:
-            self.metadata_server.leader_election._is_leader = False
-            self.metadata_server.leader_election._current_leader = new_leader_id
-            
-            # Usar el término del nuevo líder
-            if new_leader_id in peer_states:
-                new_term = peer_states[new_leader_id].get('term', 0)
-                if new_term > self.metadata_server.leader_election._term:
-                    self.metadata_server.leader_election._term = new_term
+        # Llamar a force_reconciliation del leader_election
+        result = self.metadata_server.leader_election.force_reconciliation(election_states)
+        
+        logger.info(f"🔄 Leader election forced to: {result}")
     
-    def _merge_peer_states(self, peer_states: Dict[str, Dict]):
-        """
-        Como líder canónico, merge los estados de los peers que operaron
-        durante la partición.
-        """
-        logger.info(f"🔀 Merging states from {len(peer_states)} peers")
+    def _merge_all_peer_states(self, peer_states: Dict[str, Dict]):
+        """Merge completo de estados de todos los peers."""
+        logger.info(f"🔀 Merging complete states from {len(peer_states)} peers")
+        
+        all_storage_nodes = {}
+        all_replicas = {}
         
         for peer_id, peer_state in peer_states.items():
             try:
-                # Merge namespace (archivos)
+                snapshot = peer_state.get('snapshot', {})
+                
+                # Recolectar storage nodes
+                replica_state = snapshot.get('replicas', {})
+                peer_storage_nodes = replica_state.get('storage_nodes', {})
+                for node_id, node_dict in peer_storage_nodes.items():
+                    if node_id not in all_storage_nodes:
+                        all_storage_nodes[node_id] = node_dict
+                
+                # Recolectar replicas
+                peer_replicas = replica_state.get('replicas', {})
+                for file_id, replicas in peer_replicas.items():
+                    if file_id not in all_replicas:
+                        all_replicas[file_id] = replicas
+                    else:
+                        # Merge replica lists
+                        existing_nodes = {r.get('node_id') for r in all_replicas[file_id]}
+                        for r in replicas:
+                            if r.get('node_id') not in existing_nodes:
+                                all_replicas[file_id].append(r)
+                
+                # Merge namespace
                 self._merge_peer_namespace(peer_id, peer_state)
-                
-                # Merge storage nodes registrados
-                self._merge_peer_storage_nodes(peer_id, peer_state)
-                
-                # Merge oplog si está disponible
-                self._merge_peer_oplog(peer_id, peer_state)
                 
             except Exception as e:
                 logger.error(f"Error merging state from {peer_id}: {e}")
-    
-    def _merge_peer_storage_nodes(self, peer_id: str, peer_state: Dict):
-        """
-        Merge los storage nodes registrados en un peer con los nuestros.
-        Esto asegura que después de una partición de red, todos los metadata
-        tengan la misma lista de storage nodes.
-        """
-        snapshot = peer_state.get('snapshot', {})
-        # El snapshot guarda replica_manager.export_state() bajo la key 'replicas'
-        # que contiene {'replicas': {...}, 'storage_nodes': {...}}
-        peer_storage_nodes = snapshot.get('replicas', {}).get('storage_nodes', {})
         
-        if not peer_storage_nodes:
-            return
-        
-        logger.info(f"📦 Merging {len(peer_storage_nodes)} storage nodes from {peer_id}")
-        
-        from ..Common.models import NodeInfo
-        from ..Common.constants import NodeState
-        
-        for node_id, node_dict in peer_storage_nodes.items():
-            try:
-                # Verificar si ya tenemos este storage registrado
-                existing_node = self.metadata_server.replica_manager.get_storage_node(node_id)
-                
-                if existing_node is None:
-                    # No tenemos este storage, agregarlo
+        # Aplicar storage nodes
+        added_storage = 0
+        for node_id, node_dict in all_storage_nodes.items():
+            if node_id not in self.metadata_server.replica_manager._storage_nodes:
+                try:
                     node = NodeInfo.from_dict(node_dict)
-                    # Marcar como UP inicialmente, el heartbeat manager actualizará el estado
                     node.state = NodeState.UP
-                    
-                    logger.info(f"➕ Adding storage node {node_id} from peer {peer_id}")
                     self.metadata_server.replica_manager.register_storage_node(node)
                     self.metadata_server.heartbeat_manager.register_node(node)
+                    added_storage += 1
+                    logger.info(f"➕ Added storage node {node_id} from reconciliation")
+                except Exception as e:
+                    logger.warning(f"Failed to add storage node {node_id}: {e}")
+        
+        # Aplicar replicas
+        for file_id, replicas in all_replicas.items():
+            try:
+                self.metadata_server.replica_manager.apply_replicas_state(file_id, replicas)
+            except Exception as e:
+                logger.warning(f"Failed to apply replicas for {file_id}: {e}")
+        
+        logger.info(f"✅ Merge completed: {added_storage} storage nodes added")
+    
+    def _replicate_state_to_followers(self, peer_nodes: List[NodeInfo]):
+        """Replica el estado completo a todos los followers."""
+        logger.info(f"📤 Replicating state to {len(peer_nodes)} followers")
+        
+        # Crear snapshot completo
+        snapshot = self.metadata_server._create_snapshot()
+        
+        for peer in peer_nodes:
+            try:
+                msg = RPCMessage(
+                    MessageType.REPL_SNAPSHOT,
+                    {
+                        'snapshot': snapshot,
+                        'from_leader': True,
+                        'force_install': True
+                    }
+                )
+                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=30)
+                
+                if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                    logger.info(f"✅ Successfully replicated state to {peer.node_id}")
                 else:
-                    logger.debug(f"Storage node {node_id} already registered")
+                    logger.warning(f"Failed to replicate state to {peer.node_id}")
                     
             except Exception as e:
-                logger.warning(f"Failed to merge storage node {node_id}: {e}")
+                logger.error(f"Error replicating to {peer.node_id}: {e}")
     
     def _merge_peer_namespace(self, peer_id: str, peer_state: Dict):
-        """
-        Merge el namespace de un peer con el nuestro, manejando conflictos.
-        """
+        """Merge el namespace de un peer con el nuestro."""
         snapshot = peer_state.get('snapshot', {})
         peer_namespace = snapshot.get('namespace', {}).get('namespace', {})
         
         if not peer_namespace:
             return
         
-        logger.info(f"Merging {len(peer_namespace)} entries from {peer_id}")
+        logger.info(f"📁 Merging {len(peer_namespace)} namespace entries from {peer_id}")
         
         my_namespace = self.metadata_server.namespace._namespace
-        conflicts = []
         
         for path, peer_meta_dict in peer_namespace.items():
-            peer_meta = FileMetadata.from_dict(peer_meta_dict)
-            
-            if path in my_namespace:
-                my_meta = my_namespace[path]
+            try:
+                peer_meta = FileMetadata.from_dict(peer_meta_dict)
                 
-                # Detectar conflicto: mismo path pero diferente contenido
-                if self._is_conflicting_file(my_meta, peer_meta):
-                    conflict_info = self._resolve_file_conflict(path, my_meta, peer_meta, peer_id)
-                    conflicts.append(conflict_info)
-                else:
-                    # No hay conflicto, usar la versión más reciente
-                    if peer_meta.modified_at > my_meta.modified_at:
-                        logger.info(f"Updating {path} with newer version from {peer_id}")
+                if path in my_namespace:
+                    my_meta = my_namespace[path]
+                    
+                    # Detectar conflicto
+                    if self._is_conflicting_file(my_meta, peer_meta):
+                        self._resolve_file_conflict(path, my_meta, peer_meta, peer_id)
+                    elif peer_meta.modified_at > my_meta.modified_at:
                         self.metadata_server.namespace.upsert_entry(peer_meta)
-            else:
-                # Archivo no existe en mi namespace, agregarlo
-                logger.info(f"Adding new file {path} from {peer_id}")
-                self.metadata_server.namespace.upsert_entry(peer_meta)
-        
-        if conflicts:
-            logger.warning(f"Resolved {len(conflicts)} file conflicts during merge")
+                else:
+                    self.metadata_server.namespace.upsert_entry(peer_meta)
+                    
+            except Exception as e:
+                logger.warning(f"Error merging namespace entry {path}: {e}")
     
     def _is_conflicting_file(self, meta1: FileMetadata, meta2: FileMetadata) -> bool:
-        """
-        Determina si dos archivos están en conflicto.
-        Conflicto = mismo path pero diferente contenido (checksum o tamaño).
-        """
-        # Directorios no tienen conflictos de contenido
+        """Determina si dos archivos están en conflicto."""
         if meta1.is_directory or meta2.is_directory:
             return False
         
-        # Si tienen checksums diferentes, es conflicto
         if meta1.checksum and meta2.checksum and meta1.checksum != meta2.checksum:
             return True
         
-        # Si tienen tamaños diferentes y timestamps similares, es conflicto
         if meta1.size != meta2.size:
             time_diff = abs(meta1.modified_at - meta2.modified_at)
-            if time_diff < 300:  # Modificados dentro de 5 minutos = conflicto
+            if time_diff < 300:
                 return True
         
         return False
@@ -378,19 +390,9 @@ class SplitBrainReconciliation:
         peer_meta: FileMetadata,
         peer_id: str
     ) -> Dict:
-        """
-        Resuelve conflictos de archivos creando versiones múltiples.
+        """Resuelve conflictos de archivos creando versiones múltiples."""
+        logger.warning(f"🔀 FILE CONFLICT detected for {path}")
         
-        Si /path/file.txt tiene conflicto, se crean:
-        - /path/file_v1_metadata1.txt (versión de metadata1)
-        - /path/file_v2_metadata2.txt (versión de metadata2)
-        """
-        logger.warning(
-            f"🔀 FILE CONFLICT detected for {path}. "
-            f"Creating versioned copies."
-        )
-        
-        # Extraer directorio y nombre base
         if '/' in path:
             dir_path = path.rsplit('/', 1)[0]
             filename = path.rsplit('/', 1)[1]
@@ -398,7 +400,6 @@ class SplitBrainReconciliation:
             dir_path = '/'
             filename = path
         
-        # Separar nombre y extensión
         if '.' in filename:
             name_base, extension = filename.rsplit('.', 1)
             extension = '.' + extension
@@ -406,7 +407,7 @@ class SplitBrainReconciliation:
             name_base = filename
             extension = ''
         
-        # Crear versión 1 (mi versión)
+        # Crear versiones
         v1_name = f"{name_base}_v1_{self.node_id}{extension}"
         v1_path = f"{dir_path}/{v1_name}" if dir_path != '/' else f"/{v1_name}"
         v1_meta = FileMetadata(
@@ -425,7 +426,6 @@ class SplitBrainReconciliation:
             checksum=my_meta.checksum
         )
         
-        # Crear versión 2 (versión del peer)
         v2_name = f"{name_base}_v2_{peer_id}{extension}"
         v2_path = f"{dir_path}/{v2_name}" if dir_path != '/' else f"/{v2_name}"
         v2_meta = FileMetadata(
@@ -444,37 +444,28 @@ class SplitBrainReconciliation:
             checksum=peer_meta.checksum
         )
         
-        # Registrar ambas versiones
         self.metadata_server.namespace.upsert_entry(v1_meta)
         self.metadata_server.namespace.upsert_entry(v2_meta)
         
-        # Eliminar el archivo original conflictivo
         try:
             self.metadata_server.namespace.delete_entry(path)
         except:
             pass
         
-        logger.info(
-            f"✅ Created versioned files: {v1_path} and {v2_path}"
-        )
+        logger.info(f"✅ Created versioned files: {v1_path} and {v2_path}")
         
         return {
             'original_path': path,
             'v1_path': v1_path,
-            'v2_path': v2_path,
-            'my_node': self.node_id,
-            'peer_node': peer_id
+            'v2_path': v2_path
         }
     
     def _synchronize_with_leader(self, leader_id: str, peer_states: Dict[str, Dict]):
-        """
-        Sincroniza mi estado con el líder canónico.
-        """
+        """Sincroniza mi estado con el líder canónico."""
         if leader_id == self.node_id:
-            # Soy el líder, no necesito sincronizar
             return
         
-        logger.info(f"Synchronizing with canonical leader {leader_id}")
+        logger.info(f"📥 Synchronizing with canonical leader {leader_id}")
         
         if leader_id not in peer_states:
             logger.warning(f"Cannot sync: leader {leader_id} not in peer_states")
@@ -484,13 +475,12 @@ class SplitBrainReconciliation:
         leader_node = leader_state['node']
         
         try:
-            # Solicitar snapshot completo del líder
             msg = RPCMessage(
                 MessageType.REPL_SNAPSHOT,
                 {
                     'request_type': 'full_snapshot',
                     'requester_id': self.node_id,
-                    'my_commit_index': self.metadata_server._commit_index
+                    'force_sync': True
                 }
             )
             
@@ -499,7 +489,7 @@ class SplitBrainReconciliation:
             if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                 snapshot = response.payload.get('snapshot')
                 if snapshot:
-                    logger.info("Installing snapshot from canonical leader")
+                    logger.info("📦 Installing snapshot from canonical leader")
                     self.metadata_server._install_snapshot(snapshot)
                     logger.info("✅ Synchronized with leader successfully")
             else:
@@ -508,33 +498,8 @@ class SplitBrainReconciliation:
         except Exception as e:
             logger.error(f"Error synchronizing with leader: {e}")
     
-    def _merge_peer_oplog(self, peer_id: str, peer_state: Dict):
-        """
-        Merge el oplog de un peer con el nuestro.
-        
-        Estrategia:
-        1. Recolectar operaciones del peer que no están en nuestro log
-        2. Aplicar operaciones en orden de timestamp
-        3. Detectar y resolver conflictos de operaciones
-        """
-        snapshot = peer_state.get('snapshot', {})
-        
-        # Por ahora, la reconciliación se hace principalmente via namespace merge
-        # El oplog es más complejo de mergear porque requiere ordenamiento temporal
-        # y detección de operaciones conflictivas
-        
-        # TODO: Implementar merge de oplog completo si se necesita granularidad fina
-        # Por ahora, el merge de namespace es suficiente para el caso de uso
-        logger.debug(f"Oplog merge for {peer_id} handled via namespace merge")
-    
     def handle_peer_reconnect(self, peer_node: NodeInfo, peer_info: Dict):
-        """
-        Llamado cuando un peer se reconecta después de una posible partición.
-        
-        Args:
-            peer_node: Información del peer que se reconectó
-            peer_info: Información del peer (term, leader_id, etc.)
-        """
+        """Llamado cuando un peer se reconecta después de una posible partición."""
         peer_term = peer_info.get('term', 0)
         peer_leader_id = peer_info.get('leader_id')
         
@@ -547,4 +512,3 @@ class SplitBrainReconciliation:
             
             # Iniciar reconciliación
             self.initiate_reconciliation(all_peers)
-

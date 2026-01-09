@@ -77,7 +77,8 @@ class MetadataServer:
             self.node_info,
             on_become_leader=self._on_become_leader,
             on_leader_change=self._on_leader_change,
-            heartbeat_manager=self.heartbeat_manager  # Pasar referencia
+            heartbeat_manager=self.heartbeat_manager,
+            get_data_state=self._get_data_state  # Función para obtener estado de datos
         )
         
         # Split-brain reconciliation
@@ -387,13 +388,19 @@ class MetadataServer:
     
     def _on_become_leader(self):
         """Callback cuando este nodo se convierte en líder"""
-        logger.info(f"Node {self.node_id} is now the leader")
+        logger.info(f"🟢 Node {self.node_id} is now the leader")
         
-        # Ejecutar limpieza de réplicas huérfanas
+        # Sincronizar estado desde peers antes de hacer cualquier otra cosa
+        threading.Thread(target=self._sync_state_from_peers, daemon=True).start()
+        
+        # Ejecutar limpieza de réplicas huérfanas (después de sincronización)
         threading.Thread(target=self._initial_leader_cleanup, daemon=True).start()
         
         # Iniciar tareas de mantenimiento
         threading.Thread(target=self._leader_maintenance_loop, daemon=True).start()
+        
+        # Iniciar replicación periódica de storage_nodes a followers
+        threading.Thread(target=self._storage_sync_loop, daemon=True).start()
     
     def _initial_leader_cleanup(self):
         """Limpieza inicial cuando nos convertimos en líder"""
@@ -414,7 +421,150 @@ class MetadataServer:
     
     def _on_leader_change(self, new_leader_id: str):
         """Callback cuando cambia el líder"""
-        logger.info(f"Leader changed to: {new_leader_id}")
+        logger.info(f"🔄 Leader changed to: {new_leader_id}")
+        
+        # Si NO soy el nuevo líder, solicitar sincronización del líder
+        if new_leader_id != self.node_id:
+            threading.Thread(target=self._request_sync_from_leader, daemon=True).start()
+    
+    def _sync_state_from_peers(self):
+        """
+        Sincroniza el estado desde los peers cuando nos convertimos en líder.
+        Esto asegura que tengamos toda la información de storage nodes y réplicas.
+        """
+        logger.info("🔄 Syncing state from peers as new leader...")
+        time.sleep(2)  # Pequeño delay para estabilización
+        
+        try:
+            with self.leader_election._lock:
+                peers = list(self.leader_election._peers.values())
+            
+            merged_storage_nodes = {}
+            merged_replicas = {}
+            
+            for peer in peers:
+                try:
+                    # Solicitar snapshot del peer
+                    msg = RPCMessage(
+                        MessageType.REPL_SNAPSHOT,
+                        {'request_type': 'full_snapshot', 'requester_id': self.node_id}
+                    )
+                    response = self._rpc_client.call(peer.host, peer.port, msg, timeout=10)
+                    
+                    if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                        snapshot = response.payload.get('snapshot', {})
+                        
+                        # Merge storage nodes
+                        replica_state = snapshot.get('replicas', {})
+                        peer_storage_nodes = replica_state.get('storage_nodes', {})
+                        for node_id, node_dict in peer_storage_nodes.items():
+                            if node_id not in merged_storage_nodes:
+                                merged_storage_nodes[node_id] = node_dict
+                                logger.info(f"📦 Discovered storage node {node_id} from peer {peer.node_id}")
+                        
+                        # Merge replicas
+                        peer_replicas = replica_state.get('replicas', {})
+                        for file_id, replicas in peer_replicas.items():
+                            if file_id not in merged_replicas:
+                                merged_replicas[file_id] = replicas
+                            else:
+                                # Merge replica lists
+                                existing_nodes = {r.get('node_id') for r in merged_replicas[file_id]}
+                                for r in replicas:
+                                    if r.get('node_id') not in existing_nodes:
+                                        merged_replicas[file_id].append(r)
+                        
+                        logger.info(f"✅ Got state from peer {peer.node_id}: {len(peer_storage_nodes)} storage nodes")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to sync from peer {peer.node_id}: {e}")
+            
+            # Aplicar storage nodes descubiertos
+            for node_id, node_dict in merged_storage_nodes.items():
+                if node_id not in self.replica_manager._storage_nodes:
+                    try:
+                        node = NodeInfo.from_dict(node_dict)
+                        node.state = NodeState.UP
+                        self.replica_manager.register_storage_node(node)
+                        self.heartbeat_manager.register_node(node)
+                        logger.info(f"➕ Added storage node {node_id} from peer sync")
+                    except Exception as e:
+                        logger.warning(f"Failed to add storage node {node_id}: {e}")
+            
+            # Aplicar replicas descubiertas
+            for file_id, replicas in merged_replicas.items():
+                if file_id not in self.replica_manager._replicas:
+                    try:
+                        self.replica_manager.apply_replicas_state(file_id, replicas)
+                        logger.debug(f"Added replicas for {file_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to add replicas for {file_id}: {e}")
+            
+            logger.info(f"✅ State sync completed: {len(merged_storage_nodes)} storage nodes merged")
+            
+        except Exception as e:
+            logger.error(f"Error syncing state from peers: {e}")
+    
+    def _request_sync_from_leader(self):
+        """Solicita sincronización del líder cuando cambia el liderazgo"""
+        time.sleep(3)  # Esperar a que el líder se estabilice
+        
+        leader = self.leader_election.get_leader()
+        if not leader or leader.node_id == self.node_id:
+            return
+        
+        try:
+            logger.info(f"📥 Requesting full sync from leader {leader.node_id}")
+            
+            msg = RPCMessage(
+                MessageType.REPL_SNAPSHOT,
+                {'request_type': 'full_snapshot', 'requester_id': self.node_id}
+            )
+            response = self._rpc_client.call(leader.host, leader.port, msg, timeout=30)
+            
+            if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                snapshot = response.payload.get('snapshot')
+                if snapshot:
+                    self._install_snapshot(snapshot)
+                    logger.info("✅ Successfully synced from leader")
+            else:
+                logger.warning("Failed to get snapshot from leader")
+                
+        except Exception as e:
+            logger.error(f"Error requesting sync from leader: {e}")
+    
+    def _storage_sync_loop(self):
+        """Loop que sincroniza storage nodes del líder a los followers periódicamente"""
+        while self._running and self.leader_election.is_leader():
+            try:
+                time.sleep(15)  # Cada 15 segundos
+                
+                if not self.leader_election.is_leader():
+                    break
+                
+                # Obtener lista de storage nodes y réplicas
+                storage_state = self.replica_manager.export_state()
+                
+                with self.leader_election._lock:
+                    peers = list(self.leader_election._peers.values())
+                
+                for peer in peers:
+                    try:
+                        # Enviar estado de storage nodes a cada follower
+                        msg = RPCMessage(
+                            MessageType.SYNC_REQUEST,
+                            {
+                                'sync_type': 'storage_nodes',
+                                'storage_nodes': storage_state.get('storage_nodes', {}),
+                                'from_leader': True
+                            }
+                        )
+                        self._rpc_client.call(peer.host, peer.port, msg, timeout=5)
+                    except Exception as e:
+                        logger.debug(f"Failed to sync storage nodes to {peer.node_id}: {e}")
+                
+            except Exception as e:
+                logger.error(f"Error in storage sync loop: {e}")
     
     def _redirect_to_leader(self, response_type: MessageType, request_id: str) -> RPCMessage:
         """Redirige al cliente al líder actual"""
@@ -959,12 +1109,17 @@ class MetadataServer:
     def _handle_leader_query(self, msg: RPCMessage) -> RPCMessage:
         """Responde quién es el líder actual"""
         leader = self.leader_election.get_leader()
+        data_state = self._get_data_state()
+        
         return RPCMessage(
             MessageType.LEADER_RESPONSE,
             {
                 'leader_id': self.leader_election.get_leader_id(),
                 'leader_host': leader.host if leader else None,
-                'leader_port': leader.port if leader else None
+                'leader_port': leader.port if leader else None,
+                'term': self.leader_election.get_term(),
+                'data_state': data_state,
+                'is_leader': self.leader_election.is_leader()
             },
             msg.request_id
         )
@@ -1483,7 +1638,41 @@ class MetadataServer:
     
     def _handle_sync_request(self, msg: RPCMessage) -> RPCMessage:
         """Maneja solicitudes de sincronización de estado"""
-        # Exportar todo el estado
+        sync_type = msg.payload.get('sync_type')
+        from_leader = msg.payload.get('from_leader', False)
+        
+        # Si es sincronización de storage_nodes desde el líder
+        if sync_type == 'storage_nodes' and from_leader:
+            storage_nodes = msg.payload.get('storage_nodes', {})
+            added_count = 0
+            
+            for node_id, node_dict in storage_nodes.items():
+                try:
+                    if node_id not in self.replica_manager._storage_nodes:
+                        node = NodeInfo.from_dict(node_dict)
+                        node.state = NodeState.UP
+                        self.replica_manager.register_storage_node(node)
+                        self.heartbeat_manager.register_node(node)
+                        added_count += 1
+                        logger.info(f"📦 Synced storage node {node_id} from leader")
+                    else:
+                        # Actualizar estado si el nodo ya existe
+                        existing = self.replica_manager._storage_nodes[node_id]
+                        if existing.state == NodeState.DOWN:
+                            existing.state = NodeState.UP
+                except Exception as e:
+                    logger.warning(f"Failed to sync storage node {node_id}: {e}")
+            
+            if added_count > 0:
+                logger.info(f"✅ Synced {added_count} storage nodes from leader")
+            
+            return RPCMessage(
+                MessageType.SYNC_RESPONSE,
+                {'status': DistributedResponseCode.SUCCESS.value, 'added': added_count},
+                msg.request_id
+            )
+        
+        # Exportar todo el estado (comportamiento original)
         state = {
             'namespace': self.namespace.export_state(),
             'users': self.auth_service.export_state(),
@@ -1990,16 +2179,40 @@ class MetadataServer:
         return state
 
     def _install_snapshot(self, snapshot: Dict[str, Any]):
-        """Instala snapshot recibido"""
+        """Instala snapshot recibido, incluyendo registro de storage_nodes"""
         try:
             if not snapshot:
                 return
+            
+            logger.info("📦 Installing snapshot...")
+            
+            # Importar estado de cada componente
             self.namespace.import_state(snapshot.get('namespace', {}))
             self.lock_manager.import_state(snapshot.get('locks', {}))
             self.auth_service.import_state(snapshot.get('users', {}))
-            self.replica_manager.import_state(snapshot.get('replicas', {}))
+            
+            # Importar réplicas y storage_nodes
+            replicas_state = snapshot.get('replicas', {})
+            self.replica_manager.import_state(replicas_state)
+            
+            # Registrar storage_nodes en heartbeat_manager
+            storage_nodes = replicas_state.get('storage_nodes', {})
+            for node_id, node_dict in storage_nodes.items():
+                try:
+                    if node_id not in [n.node_id for n in self.heartbeat_manager._nodes.values() if hasattr(self.heartbeat_manager, '_nodes')]:
+                        node = NodeInfo.from_dict(node_dict)
+                        node.state = NodeState.UP
+                        self.heartbeat_manager.register_node(node)
+                        logger.debug(f"Registered storage {node_id} from snapshot")
+                except Exception as e:
+                    logger.debug(f"Could not register storage {node_id} from snapshot: {e}")
+            
             self._commit_index = snapshot.get('commit_index', -1)
             self._last_applied = self._commit_index
+            
+            logger.info(f"✅ Snapshot installed: {len(storage_nodes)} storage nodes, "
+                       f"commit_index={self._commit_index}")
+            
         except Exception as e:
             logger.error(f"Failed to install snapshot: {e}")
 
@@ -2285,6 +2498,29 @@ class MetadataServer:
                             logger.info(f"Registered peer {peer.node_id} from gossip")
             except Exception as e:
                 logger.debug(f"Could not register received peer: {e}")
+    
+    def _get_data_state(self) -> Dict:
+        """
+        Obtiene el estado de datos del nodo para comparación en elección de líder.
+        Retorna información sobre archivos, storage nodes y commit index.
+        """
+        try:
+            with self._log_lock:
+                file_count = len(self.namespace._namespace)
+                storage_count = len(self.replica_manager._storage_nodes)
+                commit_index = self._commit_index
+                oplog_length = len(self._oplog)
+                
+                return {
+                    'file_count': file_count,
+                    'storage_count': storage_count,
+                    'commit_index': commit_index,
+                    'oplog_length': oplog_length,
+                    'term': self.leader_election.get_term() if hasattr(self, 'leader_election') else 0
+                }
+        except Exception as e:
+            logger.debug(f"Error getting data state: {e}")
+            return {'file_count': 0, 'storage_count': 0, 'commit_index': -1, 'oplog_length': 0}
     
     def _get_all_peer_info(self) -> List[Dict]:
         """Obtiene información de todos los peers como diccionarios"""
