@@ -407,7 +407,7 @@ class LeaderElection:
                     }
                 )
                 try:
-                    response = self._rpc_client.call(peer.host, peer.port, msg, timeout=3)
+                    response = self._rpc_client.call(peer.host, peer.port, msg)
                     if response:
                         active_peers += 1
                         peer_responses[peer_id] = {
@@ -494,7 +494,7 @@ class LeaderElection:
                 }
             )
             try:
-                self._rpc_client.call(peer.host, peer.port, msg, timeout=2)
+                self._rpc_client.call(peer.host, peer.port, msg)
             except Exception as e:
                 logger.debug(f"Failed to announce leadership to {peer.node_id}: {e}")
     
@@ -543,7 +543,7 @@ class LeaderElection:
                 }
             )
             try:
-                self._rpc_client.call(peer.host, peer.port, msg, timeout=2)
+                self._rpc_client.call(peer.host, peer.port, msg)
             except Exception as e:
                 if "Temporary failure in name resolution" not in str(e):
                     logger.debug(f"Failed to send heartbeat to {peer.node_id}: {e}")
@@ -552,7 +552,7 @@ class LeaderElection:
         """Consulta a un peer quién es el líder"""
         msg = RPCMessage(MessageType.LEADER_QUERY, {'requester_id': self.node_id})
         try:
-            response = self._rpc_client.call(peer.host, peer.port, msg, timeout=3)
+            response = self._rpc_client.call(peer.host, peer.port, msg)
             if response:
                 return (
                     response.payload.get('leader_id'),

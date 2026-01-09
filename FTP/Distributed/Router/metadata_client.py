@@ -110,7 +110,7 @@ class MetadataClient:
         """Consulta a un nodo metadata información completa del líder"""
         try:
             msg = RPCMessage(MessageType.LEADER_QUERY, {})
-            response = self._rpc_client.call(host, port, msg, timeout=3)
+            response = self._rpc_client.call(host, port, msg)
             
             if response and response.payload:
                 leader_host = response.payload.get('leader_host')

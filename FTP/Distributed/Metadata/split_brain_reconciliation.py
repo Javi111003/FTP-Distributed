@@ -148,7 +148,7 @@ class SplitBrainReconciliation:
                     {'request_type': 'full_snapshot', 'requester_id': self.node_id}
                 )
                 
-                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=10)
+                response = self._rpc_client.call(peer.host, peer.port, msg)
                 
                 if response and response.payload:
                     snapshot = response.payload.get('snapshot', {})
@@ -328,7 +328,7 @@ class SplitBrainReconciliation:
                         'force_install': True
                     }
                 )
-                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=30)
+                response = self._rpc_client.call(peer.host, peer.port, msg)
                 
                 if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                     logger.info(f"✅ Successfully replicated state to {peer.node_id}")
@@ -484,7 +484,7 @@ class SplitBrainReconciliation:
                 }
             )
             
-            response = self._rpc_client.call(leader_node.host, leader_node.port, msg, timeout=30)
+            response = self._rpc_client.call(leader_node.host, leader_node.port, msg)
             
             if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                 snapshot = response.payload.get('snapshot')

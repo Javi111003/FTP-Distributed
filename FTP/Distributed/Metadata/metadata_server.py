@@ -449,7 +449,7 @@ class MetadataServer:
                         MessageType.REPL_SNAPSHOT,
                         {'request_type': 'full_snapshot', 'requester_id': self.node_id}
                     )
-                    response = self._rpc_client.call(peer.host, peer.port, msg, timeout=10)
+                    response = self._rpc_client.call(peer.host, peer.port, msg)
                     
                     if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                         snapshot = response.payload.get('snapshot', {})
@@ -520,7 +520,7 @@ class MetadataServer:
                 MessageType.REPL_SNAPSHOT,
                 {'request_type': 'full_snapshot', 'requester_id': self.node_id}
             )
-            response = self._rpc_client.call(leader.host, leader.port, msg, timeout=30)
+            response = self._rpc_client.call(leader.host, leader.port, msg)
             
             if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                 snapshot = response.payload.get('snapshot')
@@ -559,7 +559,7 @@ class MetadataServer:
                                 'from_leader': True
                             }
                         )
-                        self._rpc_client.call(peer.host, peer.port, msg, timeout=5)
+                        self._rpc_client.call(peer.host, peer.port, msg)
                     except Exception as e:
                         logger.debug(f"Failed to sync storage nodes to {peer.node_id}: {e}")
                 
@@ -826,7 +826,7 @@ class MetadataServer:
                         'from_leader': True  # Indica que viene del líder
                     }
                 )
-                self._rpc_client.call(peer.host, peer.port, msg, timeout=3)
+                self._rpc_client.call(peer.host, peer.port, msg)
                 logger.debug(f"Replicated storage {storage_node.node_id} to {peer.node_id}")
             except Exception as e:
                 logger.warning(f"Failed to replicate storage registration to {peer.node_id}: {e}")
@@ -1156,7 +1156,7 @@ class MetadataServer:
                     if leader and leader.node_id != self.node_id:
                         logger.info(f"📤 Forwarding STORAGE registration {node.node_id} to leader {leader.node_id}")
                         try:
-                            forward_response = self._rpc_client.call(leader.host, leader.port, msg, timeout=5)
+                            forward_response = self._rpc_client.call(leader.host, leader.port, msg)
                             if forward_response:
                                 # Aún así registramos localmente para heartbeats
                                 self.replica_manager.register_storage_node(node)
@@ -2029,7 +2029,7 @@ class MetadataServer:
 
             # Esperar resultados con timeout global
             start_time = time.time()
-            for future in concurrent.futures.as_completed(future_to_peer, timeout=10.0):
+            for future in concurrent.futures.as_completed(future_to_peer):
                 peer = future_to_peer[future]
                 try:
                     if future.result():
@@ -2052,7 +2052,7 @@ class MetadataServer:
             'quorum_required': quorum
         }
 
-    def _send_append_to_peer_with_timeout(self, peer: NodeInfo, entry: Dict[str, Any], timeout: float) -> bool:
+    def _send_append_to_peer_with_timeout(self, peer: NodeInfo, entry: Dict[str, Any]) -> bool:
         """Envía append a peer con timeout específico"""
         import time
         start_time = time.time()
