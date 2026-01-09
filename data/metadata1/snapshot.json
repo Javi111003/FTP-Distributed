@@ -1,6 +1,6 @@
 {
-  "checksum": "8f370874be0926630d96f95fd09b4cbd",
-  "commit_index": 18,
+  "checksum": "2980559f25229df203140866790b93cf",
+  "commit_index": 4,
   "locks": {
     "read_locks": {},
     "write_locks": {}
@@ -8,11 +8,11 @@
   "namespace": {
     "/": {
       "checksum": null,
-      "created_at": 1767982306.5053766,
-      "file_id": "8bc458c9-5735-4550-8ff1-28c70393dee8",
+      "created_at": 1767988052.366078,
+      "file_id": "c85b7c01-34f7-443b-99a5-6c703553d606",
       "group": "users",
       "is_directory": true,
-      "modified_at": 1767982306.5053768,
+      "modified_at": 1767988052.3660786,
       "name": "/",
       "owner": "root",
       "path": "/",
@@ -23,11 +23,11 @@
     },
     "/admin": {
       "checksum": null,
-      "created_at": 1767983150.456549,
-      "file_id": "224cb30a-a46a-4303-97f7-dff5620f608a",
+      "created_at": 1767988378.8381484,
+      "file_id": "19b83f7a-5988-4554-8090-4d81652f24d6",
       "group": "users",
       "is_directory": true,
-      "modified_at": 1767983150.4565496,
+      "modified_at": 1767988378.8381493,
       "name": "admin",
       "owner": "admin",
       "path": "/admin",
@@ -36,156 +36,38 @@
       "size": 0,
       "version": 1
     },
-    "/admin/compartido.txt": {
+    "/admin/joel.pdf": {
       "checksum": null,
-      "created_at": 1767983245.685692,
-      "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+      "created_at": 1767988414.6219923,
+      "file_id": "3aa83a1b-1813-44f4-8a39-15473a9ad72e",
       "group": "users",
       "is_directory": false,
-      "modified_at": 1767983245.7014878,
-      "name": "compartido.txt",
+      "modified_at": 1767988414.6568348,
+      "name": "joel.pdf",
       "owner": "admin",
-      "path": "/admin/compartido.txt",
+      "path": "/admin/joel.pdf",
       "permissions": 6,
       "replicas": [
-        "storage-2",
-        "storage-4",
         "storage-1",
         "storage-3"
-      ],
-      "size": 6,
-      "version": 2
-    },
-    "/admin/holamundo1.pdf": {
-      "checksum": null,
-      "created_at": 1767985718.356709,
-      "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
-      "group": "users",
-      "is_directory": false,
-      "modified_at": 1767985718.4462564,
-      "name": "holamundo1.pdf",
-      "owner": "admin",
-      "path": "/admin/holamundo1.pdf",
-      "permissions": 6,
-      "replicas": [
-        "storage-3",
-        "storage-1"
-      ],
-      "size": 23186,
-      "version": 2
-    },
-    "/admin/javier.pdf": {
-      "checksum": null,
-      "created_at": 1767983188.9681568,
-      "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
-      "group": "users",
-      "is_directory": false,
-      "modified_at": 1767983188.9855464,
-      "name": "javier.pdf",
-      "owner": "admin",
-      "path": "/admin/javier.pdf",
-      "permissions": 6,
-      "replicas": [
-        "storage-2",
-        "storage-4",
-        "storage-1",
-        "storage-3"
-      ],
-      "size": 23186,
-      "version": 2
-    },
-    "/admin/perro": {
-      "checksum": null,
-      "created_at": 1767817624.6599863,
-      "file_id": "0df13978-c53c-4cd9-8fbd-d89cb0f07ae6",
-      "group": "users",
-      "is_directory": true,
-      "modified_at": 1767817624.659987,
-      "name": "perro",
-      "owner": "admin",
-      "path": "/admin/perro",
-      "permissions": 7,
-      "replicas": [],
-      "size": 0,
-      "version": 1
-    },
-    "/admin/perro/ftp23.pdf": {
-      "checksum": null,
-      "created_at": 1767817671.413832,
-      "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
-      "group": "users",
-      "is_directory": false,
-      "modified_at": 1767817671.5520606,
-      "name": "ftp23.pdf",
-      "owner": "admin",
-      "path": "/admin/perro/ftp23.pdf",
-      "permissions": 6,
-      "replicas": [
-        "storage-1"
-      ],
-      "size": 23186,
-      "version": 2
-    },
-    "/usuario1": {
-      "checksum": null,
-      "created_at": 1767816778.9367328,
-      "file_id": "1c1b21b7-338d-42d7-8b31-d0ad679ede7b",
-      "group": "users",
-      "is_directory": true,
-      "modified_at": 1767816778.9367335,
-      "name": "usuario1",
-      "owner": "usuario1",
-      "path": "/usuario1",
-      "permissions": 7,
-      "replicas": [],
-      "size": 0,
-      "version": 1
-    },
-    "/usuario1/lol": {
-      "checksum": null,
-      "created_at": 1767817475.0413117,
-      "file_id": "23ac4bb7-0d63-4286-a675-55f2ca95cccf",
-      "group": "users",
-      "is_directory": true,
-      "modified_at": 1767817475.0413125,
-      "name": "lol",
-      "owner": "usuario1",
-      "path": "/usuario1/lol",
-      "permissions": 7,
-      "replicas": [],
-      "size": 0,
-      "version": 1
-    },
-    "/usuario1/lol/beltran.pdf": {
-      "checksum": null,
-      "created_at": 1767817641.69184,
-      "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
-      "group": "users",
-      "is_directory": false,
-      "modified_at": 1767817641.9955714,
-      "name": "beltran.pdf",
-      "owner": "usuario1",
-      "path": "/usuario1/lol/beltran.pdf",
-      "permissions": 6,
-      "replicas": [
-        "storage-1"
       ],
       "size": 23186,
       "version": 3
     },
-    "/usuario1/lol/ftp.pdf": {
+    "/admin/kendry.pdf": {
       "checksum": null,
-      "created_at": 1767817522.8780997,
-      "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
+      "created_at": 1767988404.0066402,
+      "file_id": "0fccbb9d-ae44-401d-9fea-aa7120d6942b",
       "group": "users",
       "is_directory": false,
-      "modified_at": 1767817523.2399065,
-      "name": "ftp.pdf",
-      "owner": "usuario1",
-      "path": "/usuario1/lol/ftp.pdf",
+      "modified_at": 1767988404.063456,
+      "name": "kendry.pdf",
+      "owner": "admin",
+      "path": "/admin/kendry.pdf",
       "permissions": 6,
       "replicas": [
-        "storage-1"
+        "storage-1",
+        "storage-3"
       ],
       "size": 23186,
       "version": 3
@@ -193,140 +75,51 @@
   },
   "replicas": {
     "replicas": {
-      "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b": [
+      "0fccbb9d-ae44-401d-9fea-aa7120d6942b": [
         {
           "checksum": null,
-          "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
+          "file_id": "0fccbb9d-ae44-401d-9fea-aa7120d6942b",
           "is_primary": true,
-          "last_sync": 1767985531.306519,
+          "last_sync": 1767988404.007909,
           "node_id": "storage-1",
-          "size": 23186,
-          "version": 2
-        }
-      ],
-      "39335a24-8f14-4133-b114-1ea2c78e4d18": [
-        {
-          "checksum": null,
-          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
-          "is_primary": true,
-          "last_sync": 1767985535.8519664,
-          "node_id": "storage-2",
-          "size": 6,
-          "version": 2
+          "size": 0,
+          "version": 1
         },
         {
           "checksum": null,
-          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "file_id": "0fccbb9d-ae44-401d-9fea-aa7120d6942b",
           "is_primary": false,
-          "last_sync": 1767985535.8519676,
-          "node_id": "storage-4",
-          "size": 6,
-          "version": 2
-        },
-        {
-          "checksum": null,
-          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
-          "is_primary": false,
-          "last_sync": 1767985535.851968,
-          "node_id": "storage-1",
-          "size": 6,
-          "version": 2
-        },
-        {
-          "checksum": null,
-          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
-          "is_primary": false,
-          "last_sync": 1767985535.8519685,
+          "last_sync": 1767988404.0079148,
           "node_id": "storage-3",
-          "size": 6,
-          "version": 2
+          "size": 0,
+          "version": 1
         }
       ],
-      "401ec3a9-0bb4-45dc-9f04-afc5f5101446": [
+      "3aa83a1b-1813-44f4-8a39-15473a9ad72e": [
         {
           "checksum": null,
-          "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
+          "file_id": "3aa83a1b-1813-44f4-8a39-15473a9ad72e",
           "is_primary": true,
-          "last_sync": 1767985531.306548,
+          "last_sync": 1767988414.622682,
           "node_id": "storage-1",
-          "size": 23186,
-          "version": 3
-        }
-      ],
-      "4398704a-5c7b-4765-bd59-2db95fc63661": [
-        {
-          "checksum": null,
-          "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
-          "is_primary": true,
-          "last_sync": 1767985531.3065429,
-          "node_id": "storage-1",
-          "size": 23186,
-          "version": 3
-        }
-      ],
-      "4e587f33-b78d-4c5f-896a-27e5769f163a": [
-        {
-          "checksum": null,
-          "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
-          "is_primary": true,
-          "last_sync": 1767985718.3593512,
-          "node_id": "storage-3",
           "size": 0,
           "version": 1
         },
         {
           "checksum": null,
-          "file_id": "4e587f33-b78d-4c5f-896a-27e5769f163a",
+          "file_id": "3aa83a1b-1813-44f4-8a39-15473a9ad72e",
           "is_primary": false,
-          "last_sync": 1767985718.3593552,
-          "node_id": "storage-1",
+          "last_sync": 1767988414.6226854,
+          "node_id": "storage-3",
           "size": 0,
           "version": 1
-        }
-      ],
-      "baa80d38-1604-4973-9b11-a4f4898cc881": [
-        {
-          "checksum": null,
-          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
-          "is_primary": true,
-          "last_sync": 1767985535.8512573,
-          "node_id": "storage-2",
-          "size": 23186,
-          "version": 2
-        },
-        {
-          "checksum": null,
-          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
-          "is_primary": false,
-          "last_sync": 1767985535.851259,
-          "node_id": "storage-4",
-          "size": 23186,
-          "version": 2
-        },
-        {
-          "checksum": null,
-          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
-          "is_primary": false,
-          "last_sync": 1767985535.8512595,
-          "node_id": "storage-1",
-          "size": 23186,
-          "version": 2
-        },
-        {
-          "checksum": null,
-          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
-          "is_primary": false,
-          "last_sync": 1767985535.8512597,
-          "node_id": "storage-3",
-          "size": 23186,
-          "version": 2
         }
       ]
     },
     "storage_nodes": {
       "storage-1": {
         "host": "storage1",
-        "last_heartbeat": 1767985718.411315,
+        "last_heartbeat": 1767988414.632371,
         "metadata": {},
         "node_id": "storage-1",
         "node_type": "STORAGE",
@@ -335,16 +128,16 @@
       },
       "storage-2": {
         "host": "storage2",
-        "last_heartbeat": 1767985701.5316465,
+        "last_heartbeat": 1767988373.0309055,
         "metadata": {},
         "node_id": "storage-2",
         "node_type": "STORAGE",
         "port": 5001,
-        "state": "DOWN"
+        "state": "UP"
       },
       "storage-3": {
         "host": "storage3",
-        "last_heartbeat": 1767985718.4054077,
+        "last_heartbeat": 1767988414.6324728,
         "metadata": {},
         "node_id": "storage-3",
         "node_type": "STORAGE",
@@ -353,7 +146,7 @@
       },
       "storage-4": {
         "host": "storage4",
-        "last_heartbeat": 1767985691.509124,
+        "last_heartbeat": 1767988453.0655656,
         "metadata": {},
         "node_id": "storage-4",
         "node_type": "STORAGE",
@@ -370,26 +163,8 @@
       ],
       "home_dir": "/admin",
       "is_admin": true,
-      "password_hash": "$2b$12$MUXBgB.pYZmjsMNq1lopBuW83kBBtdjPoU5bj.DN2e8SmCO/j/0X2",
+      "password_hash": "$2b$12$bcqFZ.0056HgpbxepS/OGOW03a73wtTiSy0JXrHPSV.dxN4AQj/S2",
       "username": "admin"
-    },
-    "usuario1": {
-      "groups": [
-        "users"
-      ],
-      "home_dir": "/usuario1",
-      "is_admin": false,
-      "password_hash": "$2b$12$MUXBgB.pYZmjsMNq1lopBuW83kBBtdjPoU5bj.DN2e8SmCO/j/0X2",
-      "username": "usuario1"
-    },
-    "usuario2": {
-      "groups": [
-        "users"
-      ],
-      "home_dir": "/usuario2",
-      "is_admin": false,
-      "password_hash": "$2b$12$MPO5aDvkRXwWzgF1YFZUNuoq.nSTzi91/TxkUm.HFs3e4hTaaeDrW",
-      "username": "usuario2"
     }
   }
 }

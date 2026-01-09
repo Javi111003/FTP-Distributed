@@ -166,6 +166,10 @@ class SplitBrainReconciliation:
                 logger.info("📤 I am the canonical leader - merging states from peers...")
                 # Soy el líder canónico, merge estados de los demás
                 self._merge_all_peer_states(peer_states)
+                # *** CRÍTICO: Guardar namespace mergeado al disco ***
+                logger.info("💾 Persisting merged namespace to disk...")
+                self.metadata_server.namespace._persist_to_disk()
+                logger.info("✅ Namespace persisted - snapshot will include all merged files")
                 # Replicar mi estado a todos los followers
                 self._replicate_state_to_followers(peer_nodes)
             else:
@@ -173,11 +177,23 @@ class SplitBrainReconciliation:
                 # No soy líder, sincronizar desde el líder
                 self._synchronize_with_leader(canonical_leader, peer_states)
             
-            logger.warning(
-                f"✅✅✅ SPLIT-BRAIN RECONCILIATION COMPLETED ✅✅✅\n"
-                f"    Final leader: {canonical_leader}\n"
-                f"    My role: {'LEADER' if canonical_leader == self.node_id else 'FOLLOWER'}"
-            )
+            # Verificar estado final
+            if canonical_leader == self.node_id:
+                final_files = len(self.metadata_server.namespace._namespace)
+                logger.warning(
+                    f"✅✅✅ SPLIT-BRAIN RECONCILIATION COMPLETED ✅✅✅\n"
+                    f"    Final leader: {canonical_leader}\n"
+                    f"    My role: LEADER\n"
+                    f"    Final namespace: {final_files} files\n"
+                    f"    State replicated to all followers"
+                )
+            else:
+                logger.warning(
+                    f"✅✅✅ SPLIT-BRAIN RECONCILIATION COMPLETED ✅✅✅\n"
+                    f"    Final leader: {canonical_leader}\n"
+                    f"    My role: FOLLOWER\n"
+                    f"    Synchronized with leader successfully"
+                )
             
         except Exception as e:
             logger.error(f"❌❌❌ ERROR during reconciliation: {e}", exc_info=True)
@@ -358,7 +374,9 @@ class SplitBrainReconciliation:
             except Exception as e:
                 logger.warning(f"Failed to apply replicas for {file_id}: {e}")
         
-        logger.info(f"✅ Merge completed: {added_storage} storage nodes added")
+        # Contar archivos totales después del merge
+        final_file_count = len(self.metadata_server.namespace._namespace)
+        logger.info(f"✅ Merge completed: {added_storage} storage nodes added, {final_file_count} total files in namespace")
     
     def _replicate_state_to_followers(self, peer_nodes: List[NodeInfo]):
         """Replica el estado completo a todos los followers."""
@@ -399,23 +417,36 @@ class SplitBrainReconciliation:
         
         my_namespace = self.metadata_server.namespace._namespace
         
+        files_added = 0
+        files_updated = 0
+        conflicts_resolved = 0
+
         for path, peer_meta_dict in peer_namespace.items():
             try:
                 peer_meta = FileMetadata.from_dict(peer_meta_dict)
-                
+
                 if path in my_namespace:
                     my_meta = my_namespace[path]
-                    
+
                     # Detectar conflicto
                     if self._is_conflicting_file(my_meta, peer_meta):
                         self._resolve_file_conflict(path, my_meta, peer_meta, peer_id)
+                        conflicts_resolved += 1
+                        logger.debug(f"🔀 Resolved conflict for {path} from {peer_id}")
                     elif peer_meta.modified_at > my_meta.modified_at:
                         self.metadata_server.namespace.upsert_entry(peer_meta)
+                        files_updated += 1
+                        logger.debug(f"📝 Updated {path} with newer version from {peer_id}")
+                    # Si no hay conflicto y mi versión es más nueva, mantener la mía
                 else:
                     self.metadata_server.namespace.upsert_entry(peer_meta)
-                    
+                    files_added += 1
+                    logger.debug(f"➕ Added new file {path} from {peer_id}")
+
             except Exception as e:
                 logger.warning(f"Error merging namespace entry {path}: {e}")
+
+        logger.info(f"📁 Namespace merge from {peer_id}: {files_added} added, {files_updated} updated, {conflicts_resolved} conflicts resolved")
     
     def _is_conflicting_file(self, meta1: FileMetadata, meta2: FileMetadata) -> bool:
         """Determina si dos archivos están en conflicto."""

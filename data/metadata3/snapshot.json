@@ -1,0 +1,258 @@
+{
+  "checksum": "30225a75684605672a231bd6fae60229",
+  "commit_index": -1,
+  "locks": {
+    "read_locks": {},
+    "write_locks": {}
+  },
+  "namespace": {
+    "/": {
+      "checksum": null,
+      "created_at": 1767982306.5053766,
+      "file_id": "8bc458c9-5735-4550-8ff1-28c70393dee8",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767982306.5053768,
+      "name": "/",
+      "owner": "root",
+      "path": "/",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin": {
+      "checksum": null,
+      "created_at": 1767983150.456549,
+      "file_id": "224cb30a-a46a-4303-97f7-dff5620f608a",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767983150.4565496,
+      "name": "admin",
+      "owner": "admin",
+      "path": "/admin",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin/claudia.pdf": {
+      "checksum": null,
+      "created_at": 1767988424.2414262,
+      "file_id": "39679c97-6f92-4d16-b4f5-2e4244f4a336",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767988424.2631307,
+      "name": "claudia.pdf",
+      "owner": "admin",
+      "path": "/admin/claudia.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-1",
+        "storage-2",
+        "storage-3"
+      ],
+      "size": 23186,
+      "version": 2
+    },
+    "/admin/compartido.txt": {
+      "checksum": null,
+      "created_at": 1767983245.685692,
+      "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767983245.7014878,
+      "name": "compartido.txt",
+      "owner": "admin",
+      "path": "/admin/compartido.txt",
+      "permissions": 6,
+      "replicas": [
+        "storage-2",
+        "storage-4",
+        "storage-1",
+        "storage-3"
+      ],
+      "size": 6,
+      "version": 2
+    },
+    "/admin/javier.pdf": {
+      "checksum": null,
+      "created_at": 1767983188.9681568,
+      "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767983188.9855464,
+      "name": "javier.pdf",
+      "owner": "admin",
+      "path": "/admin/javier.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-2",
+        "storage-4",
+        "storage-1",
+        "storage-3"
+      ],
+      "size": 23186,
+      "version": 2
+    }
+  },
+  "replicas": {
+    "replicas": {
+      "39335a24-8f14-4133-b114-1ea2c78e4d18": [
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": true,
+          "last_sync": 1767988223.7338057,
+          "node_id": "storage-2",
+          "size": 6,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": false,
+          "last_sync": 1767988223.7338068,
+          "node_id": "storage-4",
+          "size": 6,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": false,
+          "last_sync": 1767988223.7338073,
+          "node_id": "storage-1",
+          "size": 6,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
+          "is_primary": false,
+          "last_sync": 1767988223.7338076,
+          "node_id": "storage-3",
+          "size": 6,
+          "version": 2
+        }
+      ],
+      "39679c97-6f92-4d16-b4f5-2e4244f4a336": [
+        {
+          "checksum": null,
+          "file_id": "39679c97-6f92-4d16-b4f5-2e4244f4a336",
+          "is_primary": true,
+          "last_sync": 1767988424.2421527,
+          "node_id": "storage-1",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "39679c97-6f92-4d16-b4f5-2e4244f4a336",
+          "is_primary": false,
+          "last_sync": 1767988424.2421567,
+          "node_id": "storage-2",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "39679c97-6f92-4d16-b4f5-2e4244f4a336",
+          "is_primary": false,
+          "last_sync": 1767988424.242158,
+          "node_id": "storage-3",
+          "size": 0,
+          "version": 1
+        }
+      ],
+      "baa80d38-1604-4973-9b11-a4f4898cc881": [
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": true,
+          "last_sync": 1767988223.7338238,
+          "node_id": "storage-2",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": false,
+          "last_sync": 1767988223.7338243,
+          "node_id": "storage-4",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": false,
+          "last_sync": 1767988223.7338247,
+          "node_id": "storage-1",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
+          "is_primary": false,
+          "last_sync": 1767988223.733825,
+          "node_id": "storage-3",
+          "size": 23186,
+          "version": 2
+        }
+      ]
+    },
+    "storage_nodes": {
+      "storage-1": {
+        "host": "storage1",
+        "last_heartbeat": 1767988298.7469547,
+        "metadata": {},
+        "node_id": "storage-1",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      },
+      "storage-2": {
+        "host": "storage2",
+        "last_heartbeat": 1767988328.750682,
+        "metadata": {},
+        "node_id": "storage-2",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      },
+      "storage-3": {
+        "host": "storage3",
+        "last_heartbeat": 1767988338.7528694,
+        "metadata": {},
+        "node_id": "storage-3",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      },
+      "storage-4": {
+        "host": "storage4",
+        "last_heartbeat": 1767988379.3475308,
+        "metadata": {},
+        "node_id": "storage-4",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      }
+    }
+  },
+  "term": 2,
+  "users": {
+    "admin": {
+      "groups": [
+        "users"
+      ],
+      "home_dir": "/admin",
+      "is_admin": true,
+      "password_hash": "$2b$12$RqwkNDVLLAnZ9rPRZPV1AO7Mq6W42.E9rSIwcp9EUkfdEIJXCZZxy",
+      "username": "admin"
+    }
+  }
+}
