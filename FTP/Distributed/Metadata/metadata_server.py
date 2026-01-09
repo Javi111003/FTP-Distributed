@@ -302,6 +302,9 @@ class MetadataServer:
         self.rpc_server.register_handler(MessageType.REPL_APPEND, self._handle_repl_append)
         self.rpc_server.register_handler(MessageType.REPL_SNAPSHOT, self._handle_repl_snapshot)
         self.rpc_server.register_handler(MessageType.REPL_REDIRECT, self._handle_repl_redirect)
+
+        # Consulta de estado actual (para reconciliación de split-brain)
+        self.rpc_server.register_handler(MessageType.GET_CURRENT_NAMESPACE, self._handle_get_current_namespace)
     
     def start(self):
         """Inicia el servidor de metadata"""
@@ -2454,6 +2457,27 @@ class MetadataServer:
     def _handle_repl_redirect(self, msg: RPCMessage) -> RPCMessage:
         """Permite a followers responder rápido con datos del líder actual"""
         return self._redirect_to_leader(MessageType.REPL_REDIRECT, msg.request_id)
+
+    def _handle_get_current_namespace(self, msg: RPCMessage) -> RPCMessage:
+        """Devuelve el namespace actual del nodo (para reconciliación de split-brain)"""
+        try:
+            current_namespace = self.namespace._namespace
+            namespace_data = {path: meta.to_dict() for path, meta in current_namespace.items()}
+
+            logger.debug(f"Returning current namespace with {len(namespace_data)} files")
+
+            return RPCMessage(
+                MessageType.CURRENT_NAMESPACE_RESPONSE,
+                {'namespace': namespace_data},
+                msg.request_id
+            )
+        except Exception as e:
+            logger.error(f"Error getting current namespace: {e}")
+            return RPCMessage(
+                MessageType.CURRENT_NAMESPACE_RESPONSE,
+                {'namespace': {}, 'error': str(e)},
+                msg.request_id
+            )
 
 
     # === Métodos de descubrimiento y auto-registro ===

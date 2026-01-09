@@ -385,7 +385,7 @@ class SplitBrainReconciliation:
         logger.info(f"✅ Merge completed: {added_storage} storage nodes added, {final_file_count} total files in unified namespace")
 
     def _collect_all_namespaces(self, peer_states: Dict[str, Dict]) -> Dict[str, Dict]:
-        """Recolecta TODOS los namespaces de todos los nodos (incluyendo el líder canónico)."""
+        """Recolecta TODOS los namespaces actuales de todos los nodos (incluyendo el líder canónico)."""
         all_namespaces = {}
 
         # Incluir el namespace del líder canónico
@@ -395,24 +395,33 @@ class SplitBrainReconciliation:
         }
         logger.info(f"📦 Collected {len(leader_namespace)} files from leader {self.node_id}")
 
-        # Incluir namespaces de todos los peers
+        # Consultar namespace ACTUAL de todos los peers (no snapshots guardados)
         for peer_id, peer_state in peer_states.items():
             try:
-                snapshot = peer_state.get('snapshot', {})
-                peer_namespace = snapshot.get('namespace', {}).get('namespace', {})
+                peer_node = peer_state.get('node')
+                if not peer_node:
+                    logger.warning(f"⚠️ No node info for peer {peer_id}")
+                    all_namespaces[peer_id] = {}
+                    continue
 
-                if peer_namespace:
+                # Consultar namespace actual del peer
+                msg = RPCMessage(MessageType.GET_CURRENT_NAMESPACE, {})
+                response = self._rpc_client.call(peer_node.host, peer_node.port, msg)
+
+                if response and response.payload.get('namespace'):
+                    peer_namespace = response.payload['namespace']
                     all_namespaces[peer_id] = peer_namespace
-                    logger.info(f"📦 Collected {len(peer_namespace)} files from peer {peer_id}")
+                    logger.info(f"📦 Collected {len(peer_namespace)} files from peer {peer_id} (current)")
                 else:
-                    logger.warning(f"⚠️ No namespace found in snapshot from peer {peer_id}")
+                    logger.warning(f"⚠️ No current namespace response from peer {peer_id}")
                     all_namespaces[peer_id] = {}
 
             except Exception as e:
-                logger.error(f"Error collecting namespace from {peer_id}: {e}")
+                logger.error(f"Error collecting current namespace from {peer_id}: {e}")
                 all_namespaces[peer_id] = {}
 
-        logger.info(f"📊 Collected namespaces from {len(all_namespaces)} nodes total")
+        total_files = sum(len(ns) for ns in all_namespaces.values())
+        logger.info(f"📊 Collected current namespaces from {len(all_namespaces)} nodes ({total_files} total files)")
         return all_namespaces
 
     def _create_unified_namespace(self, all_namespaces: Dict[str, Dict]) -> Dict[str, Dict]:

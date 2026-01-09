@@ -125,6 +125,10 @@ class MessageType(Enum):
     REPL_SNAPSHOT_RESPONSE = "REPL_SNAPSHOT_RESPONSE"
     REPL_REDIRECT = "REPL_REDIRECT"
 
+    # Consulta de estado actual (para reconciliación de split-brain)
+    GET_CURRENT_NAMESPACE = "GET_CURRENT_NAMESPACE"
+    CURRENT_NAMESPACE_RESPONSE = "CURRENT_NAMESPACE_RESPONSE"
+
 # Tipos de bloqueo
 class LockType(Enum):
     READ = "READ"
