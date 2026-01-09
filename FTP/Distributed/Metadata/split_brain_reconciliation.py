@@ -320,21 +320,24 @@ class SplitBrainReconciliation:
     def _merge_all_peer_states(self, peer_states: Dict[str, Dict]):
         """Merge completo de estados de todos los peers."""
         logger.info(f"🔀 Merging complete states from {len(peer_states)} peers")
-        
+
         all_storage_nodes = {}
         all_replicas = {}
-        
+
+        # PASO 1: Recolectar TODOS los namespaces (incluyendo el del líder canónico)
+        all_namespaces = self._collect_all_namespaces(peer_states)
+
         for peer_id, peer_state in peer_states.items():
             try:
                 snapshot = peer_state.get('snapshot', {})
-                
+
                 # Recolectar storage nodes
                 replica_state = snapshot.get('replicas', {})
                 peer_storage_nodes = replica_state.get('storage_nodes', {})
                 for node_id, node_dict in peer_storage_nodes.items():
                     if node_id not in all_storage_nodes:
                         all_storage_nodes[node_id] = node_dict
-                
+
                 # Recolectar replicas
                 peer_replicas = replica_state.get('replicas', {})
                 for file_id, replicas in peer_replicas.items():
@@ -346,13 +349,16 @@ class SplitBrainReconciliation:
                         for r in replicas:
                             if r.get('node_id') not in existing_nodes:
                                 all_replicas[file_id].append(r)
-                
-                # Merge namespace
-                self._merge_peer_namespace(peer_id, peer_state)
-                
+
             except Exception as e:
                 logger.error(f"Error merging state from {peer_id}: {e}")
-        
+
+        # PASO 2: Crear namespace unificado completo
+        unified_namespace = self._create_unified_namespace(all_namespaces)
+
+        # PASO 3: Reemplazar completamente el namespace del líder con el unificado
+        self._replace_namespace_with_unified(unified_namespace)
+
         # Aplicar storage nodes
         added_storage = 0
         for node_id, node_dict in all_storage_nodes.items():
@@ -366,18 +372,179 @@ class SplitBrainReconciliation:
                     logger.info(f"➕ Added storage node {node_id} from reconciliation")
                 except Exception as e:
                     logger.warning(f"Failed to add storage node {node_id}: {e}")
-        
+
         # Aplicar replicas
         for file_id, replicas in all_replicas.items():
             try:
                 self.metadata_server.replica_manager.apply_replicas_state(file_id, replicas)
             except Exception as e:
                 logger.warning(f"Failed to apply replicas for {file_id}: {e}")
-        
+
         # Contar archivos totales después del merge
         final_file_count = len(self.metadata_server.namespace._namespace)
-        logger.info(f"✅ Merge completed: {added_storage} storage nodes added, {final_file_count} total files in namespace")
-    
+        logger.info(f"✅ Merge completed: {added_storage} storage nodes added, {final_file_count} total files in unified namespace")
+
+    def _collect_all_namespaces(self, peer_states: Dict[str, Dict]) -> Dict[str, Dict]:
+        """Recolecta TODOS los namespaces de todos los nodos (incluyendo el líder canónico)."""
+        all_namespaces = {}
+
+        # Incluir el namespace del líder canónico
+        leader_namespace = self.metadata_server.namespace._namespace
+        all_namespaces[self.node_id] = {
+            path: meta.to_dict() for path, meta in leader_namespace.items()
+        }
+        logger.info(f"📦 Collected {len(leader_namespace)} files from leader {self.node_id}")
+
+        # Incluir namespaces de todos los peers
+        for peer_id, peer_state in peer_states.items():
+            try:
+                snapshot = peer_state.get('snapshot', {})
+                peer_namespace = snapshot.get('namespace', {}).get('namespace', {})
+
+                if peer_namespace:
+                    all_namespaces[peer_id] = peer_namespace
+                    logger.info(f"📦 Collected {len(peer_namespace)} files from peer {peer_id}")
+                else:
+                    logger.warning(f"⚠️ No namespace found in snapshot from peer {peer_id}")
+                    all_namespaces[peer_id] = {}
+
+            except Exception as e:
+                logger.error(f"Error collecting namespace from {peer_id}: {e}")
+                all_namespaces[peer_id] = {}
+
+        logger.info(f"📊 Collected namespaces from {len(all_namespaces)} nodes total")
+        return all_namespaces
+
+    def _create_unified_namespace(self, all_namespaces: Dict[str, Dict]) -> Dict[str, Dict]:
+        """Crea un namespace unificado que contiene TODOS los archivos de todos los nodos."""
+        unified = {}
+        conflicts_handled = 0
+
+        logger.info("🔄 Creating unified namespace from all node namespaces...")
+
+        # Procesar cada namespace fuente
+        for source_node, namespace in all_namespaces.items():
+            logger.debug(f"Processing {len(namespace)} files from {source_node}")
+
+            for path, file_data in namespace.items():
+                try:
+                    file_meta = FileMetadata.from_dict(file_data)
+
+                    if path not in unified:
+                        # Archivo nuevo - agregarlo directamente
+                        unified[path] = file_data
+                        logger.debug(f"➕ Added {path} from {source_node}")
+                    else:
+                        # Archivo existente - verificar conflicto
+                        existing_meta = FileMetadata.from_dict(unified[path])
+
+                        if self._is_conflicting_file(existing_meta, file_meta):
+                            # CONFLICTO - Crear versiones v1 y v2
+                            conflicts_handled += 1
+                            unified = self._resolve_conflict_in_unified(path, existing_meta, file_meta, source_node, unified)
+                            logger.info(f"🔀 Resolved conflict for {path} - created v1/v2 versions")
+                        elif file_meta.modified_at > existing_meta.modified_at:
+                            # Versión más nueva - actualizar
+                            unified[path] = file_data
+                            logger.debug(f"📝 Updated {path} with newer version from {source_node}")
+                        # Si la existente es más nueva, mantenerla
+
+                except Exception as e:
+                    logger.warning(f"Error processing file {path} from {source_node}: {e}")
+
+        logger.info(f"✅ Unified namespace created: {len(unified)} files, {conflicts_handled} conflicts resolved")
+        return unified
+
+    def _resolve_conflict_in_unified(self, path: str, meta1: FileMetadata, meta2: FileMetadata, source_node: str, unified: Dict[str, Dict]) -> Dict[str, Dict]:
+        """Resuelve conflictos en el namespace unificado creando versiones v1/v2."""
+        # Crear versiones con nombres únicos
+        if '/' in path:
+            dir_path = path.rsplit('/', 1)[0]
+            filename = path.rsplit('/', 1)[1]
+        else:
+            dir_path = '/'
+            filename = path
+
+        if '.' in filename:
+            name_base, extension = filename.rsplit('.', 1)
+            extension = '.' + extension
+        else:
+            name_base = filename
+            extension = ''
+
+        # Crear v1 (del namespace existente)
+        v1_name = f"{name_base}_v1{extension}"
+        v1_path = f"{dir_path}/{v1_name}" if dir_path != '/' else f"/{v1_name}"
+        v1_meta = FileMetadata(
+            file_id=meta1.file_id,
+            path=v1_path,
+            name=v1_name,
+            size=meta1.size,
+            owner=meta1.owner,
+            group=meta1.group,
+            permissions=meta1.permissions,
+            version=meta1.version,
+            created_at=meta1.created_at,
+            modified_at=meta1.modified_at,
+            is_directory=False,
+            replicas=meta1.replicas,
+            checksum=meta1.checksum
+        )
+
+        # Crear v2 (del nuevo source)
+        v2_name = f"{name_base}_v2_{source_node}{extension}"
+        v2_path = f"{dir_path}/{v2_name}" if dir_path != '/' else f"/{v2_name}"
+        v2_meta = FileMetadata(
+            file_id=meta2.file_id,
+            path=v2_path,
+            name=v2_name,
+            size=meta2.size,
+            owner=meta2.owner,
+            group=meta2.group,
+            permissions=meta2.permissions,
+            version=meta2.version,
+            created_at=meta2.created_at,
+            modified_at=meta2.modified_at,
+            is_directory=False,
+            replicas=meta2.replicas,
+            checksum=meta2.checksum
+        )
+
+        # Agregar las versiones al namespace unificado
+        unified[v1_path] = v1_meta.to_dict()
+        unified[v2_path] = v2_meta.to_dict()
+
+        # Remover el archivo original conflictivo
+        if path in unified:
+            del unified[path]
+
+        logger.info(f"✅ Created conflict versions: {v1_path} and {v2_path}")
+        return unified
+
+    def _replace_namespace_with_unified(self, unified_namespace: Dict[str, Dict]):
+        """Reemplaza completamente el namespace del líder con el namespace unificado."""
+        logger.info(f"🔄 Replacing leader namespace with unified namespace ({len(unified_namespace)} files)")
+
+        try:
+            # Limpiar el namespace actual
+            self.metadata_server.namespace._namespace.clear()
+            self.metadata_server.namespace._id_index.clear()
+
+            # Agregar todos los archivos del namespace unificado
+            for path, file_data in unified_namespace.items():
+                try:
+                    file_meta = FileMetadata.from_dict(file_data)
+                    self.metadata_server.namespace._namespace[path] = file_meta
+                    self.metadata_server.namespace._id_index[file_meta.file_id] = path
+                except Exception as e:
+                    logger.warning(f"Error adding unified file {path}: {e}")
+
+            logger.info(f"✅ Leader namespace replaced with {len(unified_namespace)} unified files")
+
+        except Exception as e:
+            logger.error(f"Error replacing namespace with unified: {e}")
+            raise
+
     def _replicate_state_to_followers(self, peer_nodes: List[NodeInfo]):
         """Replica el estado completo a todos los followers."""
         logger.info(f"📤 Replicating state to {len(peer_nodes)} followers")

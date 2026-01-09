@@ -1,6 +1,6 @@
 {
   "/": {
-    "file_id": "8bc458c9-5735-4550-8ff1-28c70393dee8",
+    "file_id": "c7b7fa57-ca7f-4e43-b195-6ee7565beeef",
     "path": "/",
     "name": "/",
     "size": 0,
@@ -8,14 +8,14 @@
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1767982306.5053766,
-    "modified_at": 1767982306.5053768,
+    "created_at": 1767989442.1398065,
+    "modified_at": 1767989442.139807,
     "is_directory": true,
     "replicas": [],
     "checksum": null
   },
   "/admin": {
-    "file_id": "224cb30a-a46a-4303-97f7-dff5620f608a",
+    "file_id": "88d70e65-914e-4c43-a8a4-b9b1f75f268f",
     "path": "/admin",
     "name": "admin",
     "size": 0,
@@ -23,67 +23,43 @@
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1767983150.456549,
-    "modified_at": 1767983150.4565496,
+    "created_at": 1767989607.1936297,
+    "modified_at": 1767989607.1936316,
     "is_directory": true,
     "replicas": [],
     "checksum": null
   },
-  "/admin/compartido.txt": {
-    "file_id": "39335a24-8f14-4133-b114-1ea2c78e4d18",
-    "path": "/admin/compartido.txt",
-    "name": "compartido.txt",
-    "size": 6,
-    "owner": "admin",
-    "group": "users",
-    "permissions": 6,
-    "version": 2,
-    "created_at": 1767983245.685692,
-    "modified_at": 1767983245.7014878,
-    "is_directory": false,
-    "replicas": [
-      "storage-2",
-      "storage-4",
-      "storage-1",
-      "storage-3"
-    ],
-    "checksum": null
-  },
-  "/admin/javier.pdf": {
-    "file_id": "baa80d38-1604-4973-9b11-a4f4898cc881",
-    "path": "/admin/javier.pdf",
-    "name": "javier.pdf",
+  "/admin/bib.pdf": {
+    "file_id": "95d9db5b-ce08-4aaa-98ef-4f6233135706",
+    "path": "/admin/bib.pdf",
+    "name": "bib.pdf",
     "size": 23186,
     "owner": "admin",
     "group": "users",
     "permissions": 6,
     "version": 2,
-    "created_at": 1767983188.9681568,
-    "modified_at": 1767983188.9855464,
+    "created_at": 1767989647.4243398,
+    "modified_at": 1767989647.4370906,
     "is_directory": false,
     "replicas": [
       "storage-2",
-      "storage-4",
-      "storage-1",
-      "storage-3"
+      "storage-4"
     ],
     "checksum": null
   },
-  "/admin/claudia.pdf": {
-    "file_id": "39679c97-6f92-4d16-b4f5-2e4244f4a336",
-    "path": "/admin/claudia.pdf",
-    "name": "claudia.pdf",
+  "/admin/tol.pdf": {
+    "file_id": "e8d62d91-04a5-435e-a052-b78feda1aed3",
+    "path": "/admin/tol.pdf",
+    "name": "tol.pdf",
     "size": 23186,
     "owner": "admin",
     "group": "users",
     "permissions": 6,
     "version": 2,
-    "created_at": 1767988424.2414262,
-    "modified_at": 1767988424.2631307,
+    "created_at": 1767989818.9536688,
+    "modified_at": 1767989818.9825823,
     "is_directory": false,
     "replicas": [
-      "storage-1",
-      "storage-2",
       "storage-3"
     ],
     "checksum": null
