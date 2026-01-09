@@ -1,0 +1,214 @@
+{
+  "checksum": "c4a5d2cad70ae96b720f7fc45f9221e3",
+  "commit_index": 8,
+  "locks": {
+    "read_locks": {},
+    "write_locks": {}
+  },
+  "namespace": {
+    "/": {
+      "checksum": null,
+      "created_at": 1767814945.6364515,
+      "file_id": "34d3865f-bb7f-40fd-b484-5c03c0812354",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767814945.6364517,
+      "name": "/",
+      "owner": "root",
+      "path": "/",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin": {
+      "checksum": null,
+      "created_at": 1767817582.079364,
+      "file_id": "0da402ba-4870-4038-a1bf-17f531c2cd77",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767817582.0793645,
+      "name": "admin",
+      "owner": "admin",
+      "path": "/admin",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin/perro": {
+      "checksum": null,
+      "created_at": 1767817624.6599863,
+      "file_id": "0df13978-c53c-4cd9-8fbd-d89cb0f07ae6",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767817624.659987,
+      "name": "perro",
+      "owner": "admin",
+      "path": "/admin/perro",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin/perro/ftp23.pdf": {
+      "checksum": null,
+      "created_at": 1767817671.413832,
+      "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767817671.5520606,
+      "name": "ftp23.pdf",
+      "owner": "admin",
+      "path": "/admin/perro/ftp23.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-1"
+      ],
+      "size": 23186,
+      "version": 2
+    },
+    "/usuario1": {
+      "checksum": null,
+      "created_at": 1767816778.9367328,
+      "file_id": "1c1b21b7-338d-42d7-8b31-d0ad679ede7b",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767816778.9367335,
+      "name": "usuario1",
+      "owner": "usuario1",
+      "path": "/usuario1",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/usuario1/lol": {
+      "checksum": null,
+      "created_at": 1767817475.0413117,
+      "file_id": "23ac4bb7-0d63-4286-a675-55f2ca95cccf",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1767817475.0413125,
+      "name": "lol",
+      "owner": "usuario1",
+      "path": "/usuario1/lol",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/usuario1/lol/beltran.pdf": {
+      "checksum": null,
+      "created_at": 1767817641.69184,
+      "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767817641.9955714,
+      "name": "beltran.pdf",
+      "owner": "usuario1",
+      "path": "/usuario1/lol/beltran.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-1"
+      ],
+      "size": 23186,
+      "version": 3
+    },
+    "/usuario1/lol/ftp.pdf": {
+      "checksum": null,
+      "created_at": 1767817522.8780997,
+      "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1767817523.2399065,
+      "name": "ftp.pdf",
+      "owner": "usuario1",
+      "path": "/usuario1/lol/ftp.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-1"
+      ],
+      "size": 23186,
+      "version": 3
+    }
+  },
+  "replicas": {
+    "replicas": {
+      "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b": [
+        {
+          "checksum": null,
+          "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
+          "is_primary": true,
+          "last_sync": 1767817671.4160364,
+          "node_id": "storage-1",
+          "size": 0,
+          "version": 1
+        }
+      ],
+      "401ec3a9-0bb4-45dc-9f04-afc5f5101446": [
+        {
+          "checksum": null,
+          "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
+          "is_primary": true,
+          "last_sync": 1767817522.8789449,
+          "node_id": "storage-1",
+          "size": 0,
+          "version": 1
+        }
+      ],
+      "4398704a-5c7b-4765-bd59-2db95fc63661": [
+        {
+          "checksum": null,
+          "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
+          "is_primary": true,
+          "last_sync": 1767817641.693635,
+          "node_id": "storage-1",
+          "size": 0,
+          "version": 1
+        }
+      ]
+    },
+    "storage_nodes": {
+      "storage-1": {
+        "host": "storage1",
+        "last_heartbeat": 1767817671.4599748,
+        "metadata": {},
+        "node_id": "storage-1",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      }
+    }
+  },
+  "term": 1,
+  "users": {
+    "admin": {
+      "groups": [
+        "users"
+      ],
+      "home_dir": "/admin",
+      "is_admin": true,
+      "password_hash": "$2b$12$MUXBgB.pYZmjsMNq1lopBuW83kBBtdjPoU5bj.DN2e8SmCO/j/0X2",
+      "username": "admin"
+    },
+    "usuario1": {
+      "groups": [
+        "users"
+      ],
+      "home_dir": "/usuario1",
+      "is_admin": false,
+      "password_hash": "$2b$12$MUXBgB.pYZmjsMNq1lopBuW83kBBtdjPoU5bj.DN2e8SmCO/j/0X2",
+      "username": "usuario1"
+    },
+    "usuario2": {
+      "groups": [
+        "users"
+      ],
+      "home_dir": "/usuario2",
+      "is_admin": false,
+      "password_hash": "$2b$12$MPO5aDvkRXwWzgF1YFZUNuoq.nSTzi91/TxkUm.HFs3e4hTaaeDrW",
+      "username": "usuario2"
+    }
+  }
+}

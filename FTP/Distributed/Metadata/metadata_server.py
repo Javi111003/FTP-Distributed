@@ -24,6 +24,7 @@ from .replica_manager import ReplicaManager
 from .leader_election import LeaderElection
 from .heartbeat_manager import HeartbeatManager
 from .auth_service import AuthService
+from .split_brain_reconciliation import SplitBrainReconciliation
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,6 +79,9 @@ class MetadataServer:
             on_leader_change=self._on_leader_change,
             heartbeat_manager=self.heartbeat_manager  # Pasar referencia
         )
+        
+        # Split-brain reconciliation
+        self.split_brain_reconciliation = SplitBrainReconciliation(self)
         
         # Servidor RPC
         self.rpc_server = RPCServer(host, port)
@@ -985,6 +989,21 @@ class MetadataServer:
                                 args=(node,),
                                 daemon=True
                             ).start()
+                
+                # DETECCIÓN DE SPLIT-BRAIN: verificar si el peer tiene info diferente de líder
+                peer_leader_id = msg.payload.get('my_leader_id')
+                peer_term = msg.payload.get('my_term', 0)
+                if peer_leader_id is not None and peer_term > 0:
+                    peer_info = {
+                        'leader_id': peer_leader_id,
+                        'term': peer_term
+                    }
+                    # Verificar en thread separado para no bloquear
+                    threading.Thread(
+                        target=self.split_brain_reconciliation.handle_peer_reconnect,
+                        args=(node, peer_info),
+                        daemon=True
+                    ).start()
             
             self.heartbeat_manager.register_node(node)
             
@@ -1971,8 +1990,58 @@ class MetadataServer:
         )
 
     def _handle_repl_snapshot(self, msg: RPCMessage) -> RPCMessage:
+        # Tipos especiales de requests para reconciliación de split-brain
+        request_type = msg.payload.get('request_type')
+        
+        if request_type == 'state_summary':
+            # Devolver resumen del estado (sin todo el snapshot)
+            with self._log_lock:
+                file_count = len(self.namespace._namespace)
+                return RPCMessage(
+                    MessageType.REPL_SNAPSHOT_RESPONSE,
+                    {
+                        'status': DistributedResponseCode.SUCCESS.value,
+                        'term': self.leader_election.get_term(),
+                        'leader_id': self.leader_election.get_leader_id(),
+                        'commit_index': self._commit_index,
+                        'last_applied': self._last_applied,
+                        'oplog_length': len(self._oplog),
+                        'file_count': file_count
+                    },
+                    msg.request_id
+                )
+        
+        elif request_type == 'full_snapshot':
+            # Devolver snapshot completo (para sincronización)
+            snapshot = self._create_snapshot()
+            return RPCMessage(
+                MessageType.REPL_SNAPSHOT_RESPONSE,
+                {
+                    'status': DistributedResponseCode.SUCCESS.value,
+                    'snapshot': snapshot,
+                    'term': self.leader_election.get_term(),
+                    'leader_id': self.leader_election.get_leader_id(),
+                    'commit_index': self._commit_index
+                },
+                msg.request_id
+            )
+        
         # Si no somos líder y nos piden snapshot, redirigir
         if not self.leader_election.is_leader() and 'snapshot' not in msg.payload:
+            # Pero para reconciliación, permitir responder aunque no seamos líder
+            if request_type in ['state_summary', 'full_snapshot']:
+                snapshot = self._create_snapshot()
+                return RPCMessage(
+                    MessageType.REPL_SNAPSHOT_RESPONSE,
+                    {
+                        'status': DistributedResponseCode.SUCCESS.value,
+                        'snapshot': snapshot,
+                        'term': self.leader_election.get_term(),
+                        'leader_id': self.leader_election.get_leader_id(),
+                        'commit_index': self._commit_index
+                    },
+                    msg.request_id
+                )
             return self._redirect_to_leader(MessageType.REPL_SNAPSHOT_RESPONSE, msg.request_id)
 
         # Si recibimos snapshot para instalar
@@ -2038,7 +2107,11 @@ class MetadataServer:
                 try:
                     msg = RPCMessage(
                         MessageType.REGISTER_NODE,
-                        {'node': self.node_info.to_dict()}
+                        {
+                            'node': self.node_info.to_dict(),
+                            'my_leader_id': self.leader_election.get_leader_id(),
+                            'my_term': self.leader_election.get_term()
+                        }
                     )
                     response = self._rpc_client.call(ip, METADATA_RPC_PORT, msg)
                     
@@ -2092,7 +2165,11 @@ class MetadataServer:
             
             msg = RPCMessage(
                 MessageType.REGISTER_NODE,
-                {'node': self.node_info.to_dict()}
+                {
+                    'node': self.node_info.to_dict(),
+                    'my_leader_id': self.leader_election.get_leader_id(),
+                    'my_term': self.leader_election.get_term()
+                }
             )
             response = self._rpc_client.call(peer.host, peer.port, msg)
             
@@ -2119,7 +2196,11 @@ class MetadataServer:
         try:
             msg = RPCMessage(
                 MessageType.REGISTER_NODE,
-                {'node': self.node_info.to_dict()}
+                {
+                    'node': self.node_info.to_dict(),
+                    'my_leader_id': self.leader_election.get_leader_id(),
+                    'my_term': self.leader_election.get_term()
+                }
             )
             response = self._rpc_client.call(peer.host, peer.port, msg)
             

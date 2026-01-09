@@ -1,0 +1,162 @@
+{
+  "/": {
+    "file_id": "34d3865f-bb7f-40fd-b484-5c03c0812354",
+    "path": "/",
+    "name": "/",
+    "size": 0,
+    "owner": "root",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767814945.6364515,
+    "modified_at": 1767814945.6364517,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/usuario1": {
+    "file_id": "1c1b21b7-338d-42d7-8b31-d0ad679ede7b",
+    "path": "/usuario1",
+    "name": "usuario1",
+    "size": 0,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767816778.9367328,
+    "modified_at": 1767816778.9367335,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/usuario1/lol": {
+    "file_id": "23ac4bb7-0d63-4286-a675-55f2ca95cccf",
+    "path": "/usuario1/lol",
+    "name": "lol",
+    "size": 0,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767817475.0413117,
+    "modified_at": 1767817475.0413125,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/usuario1/lol/ftp.pdf": {
+    "file_id": "401ec3a9-0bb4-45dc-9f04-afc5f5101446",
+    "path": "/usuario1/lol/ftp.pdf",
+    "name": "ftp.pdf",
+    "size": 23186,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1767817522.8780997,
+    "modified_at": 1767817523.2399065,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/admin": {
+    "file_id": "0da402ba-4870-4038-a1bf-17f531c2cd77",
+    "path": "/admin",
+    "name": "admin",
+    "size": 0,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767817582.079364,
+    "modified_at": 1767817582.0793645,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/admin/perro": {
+    "file_id": "0df13978-c53c-4cd9-8fbd-d89cb0f07ae6",
+    "path": "/admin/perro",
+    "name": "perro",
+    "size": 0,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1767817624.6599863,
+    "modified_at": 1767817624.659987,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/usuario1/lol/beltran.pdf": {
+    "file_id": "4398704a-5c7b-4765-bd59-2db95fc63661",
+    "path": "/usuario1/lol/beltran.pdf",
+    "name": "beltran.pdf",
+    "size": 23186,
+    "owner": "usuario1",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1767817641.69184,
+    "modified_at": 1767817641.9955714,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/admin/perro/ftp23.pdf": {
+    "file_id": "14ad80eb-0a8c-4203-9be1-1b2f69f1f26b",
+    "path": "/admin/perro/ftp23.pdf",
+    "name": "ftp23.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1767817671.413832,
+    "modified_at": 1767817671.588755,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/admin/kendry.pdf": {
+    "file_id": "7cb60630-cce0-4523-ba3c-0be54ff8e51d",
+    "path": "/admin/kendry.pdf",
+    "name": "kendry.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767818580.2348902,
+    "modified_at": 1767818580.2708182,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  },
+  "/admin/compartido.txt": {
+    "file_id": "831be3f1-6b7b-49ea-9acb-71de10eb386b",
+    "path": "/admin/compartido.txt",
+    "name": "compartido.txt",
+    "size": 6,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767818735.1044922,
+    "modified_at": 1767818735.124844,
+    "is_directory": false,
+    "replicas": [
+      "storage-1"
+    ],
+    "checksum": null
+  }
+}

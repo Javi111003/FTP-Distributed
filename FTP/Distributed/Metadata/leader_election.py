@@ -153,6 +153,27 @@ class LeaderElection:
         term = message.payload.get('term', 0)
         
         with self._lock:
+            # Detectar split-brain: si somos líder y recibimos anuncio de otro líder
+            if self._is_leader and leader_id != self.node_id:
+                if term == self._term:
+                    # Mismo término, dos líderes = split-brain
+                    logger.warning(
+                        f"🔴 SPLIT-BRAIN: I am leader but received announcement from {leader_id} "
+                        f"with same term {term}. Lower ID should win."
+                    )
+                    # El de menor ID gana
+                    if leader_id < self.node_id:
+                        logger.warning(f"Stepping down in favor of {leader_id} (lower ID)")
+                        self._is_leader = False
+                        self._current_leader = leader_id
+                    else:
+                        logger.info(f"Rejecting announcement from {leader_id} (higher ID)")
+                        return  # Ignorar el anuncio
+                elif term < self._term:
+                    # Término más bajo, ignorar
+                    logger.debug(f"Ignoring leader announcement with lower term {term} < {self._term}")
+                    return
+            
             if term >= self._term:
                 old_leader = self._current_leader
                 self._term = term
