@@ -124,5 +124,43 @@
       "storage-1"
     ],
     "checksum": null
+  },
+  "/admin/kendry.pdf": {
+    "file_id": "37cf4934-2ef7-47e7-b6ff-dc5d68e3457f",
+    "path": "/admin/kendry.pdf",
+    "name": "kendry.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767983185.6554363,
+    "modified_at": 1767983186.0134423,
+    "is_directory": false,
+    "replicas": [
+      "storage-3",
+      "storage-1",
+      "storage-4"
+    ],
+    "checksum": null
+  },
+  "/admin/compartido.txt": {
+    "file_id": "596190aa-ac04-44b9-8502-0e7851ae2b51",
+    "path": "/admin/compartido.txt",
+    "name": "compartido.txt",
+    "size": 6,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1767983218.1994276,
+    "modified_at": 1767983218.234949,
+    "is_directory": false,
+    "replicas": [
+      "storage-3",
+      "storage-1",
+      "storage-4"
+    ],
+    "checksum": null
   }
 }

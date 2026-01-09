@@ -50,11 +50,20 @@ class SplitBrainReconciliation:
             my_leader_id = self.metadata_server.leader_election.get_leader_id()
             am_i_leader = self.metadata_server.leader_election.is_leader()
             
+            # LOG DE DEBUG - siempre mostrar qué se está comparando
+            logger.info(
+                f"🔍 SPLIT-BRAIN CHECK: Comparing with peer {peer_node.node_id} | "
+                f"Peer reports: leader={peer_leader_id}, term={peer_term} | "
+                f"I have: leader={my_leader_id}, term={my_term}, am_leader={am_i_leader}"
+            )
+            
             # Caso 1: Ambos somos líderes
             if am_i_leader and peer_leader_id == peer_node.node_id:
                 logger.warning(
-                    f"🔴 SPLIT-BRAIN DETECTED: Both {self.node_id} and {peer_node.node_id} "
-                    f"claim to be leaders (my term: {my_term}, peer term: {peer_term})"
+                    f"🔴🔴🔴 SPLIT-BRAIN DETECTED! 🔴🔴🔴\n"
+                    f"    REASON: Both nodes claim to be leaders\n"
+                    f"    My node: {self.node_id} (term={my_term})\n"
+                    f"    Peer node: {peer_node.node_id} (term={peer_term})"
                 )
                 return True
             
@@ -62,37 +71,59 @@ class SplitBrainReconciliation:
             if am_i_leader and peer_leader_id and peer_leader_id != self.node_id:
                 if peer_leader_id != my_leader_id:
                     logger.warning(
-                        f"🔴 SPLIT-BRAIN DETECTED: I am leader but peer reports "
-                        f"different leader {peer_leader_id}"
+                        f"🔴🔴🔴 SPLIT-BRAIN DETECTED! 🔴🔴🔴\n"
+                        f"    REASON: I am leader but peer reports different leader\n"
+                        f"    I am leader: {self.node_id}\n"
+                        f"    Peer {peer_node.node_id} says leader is: {peer_leader_id}"
                     )
                     return True
             
-            # Caso 3: Líderes diferentes reportados
+            # Caso 3: Líderes diferentes reportados (más flexible)
             if peer_leader_id and my_leader_id and peer_leader_id != my_leader_id:
                 logger.warning(
-                    f"🔴 SPLIT-BRAIN DETECTED: Different leaders. "
-                    f"My leader: {my_leader_id}, Peer's leader: {peer_leader_id}"
+                    f"🔴🔴🔴 SPLIT-BRAIN DETECTED! 🔴🔴🔴\n"
+                    f"    REASON: Different leaders in the cluster\n"
+                    f"    My leader: {my_leader_id}\n"
+                    f"    Peer {peer_node.node_id} says leader is: {peer_leader_id}"
                 )
                 return True
             
+            # Caso 4: El peer cree que es líder pero yo tengo otro líder
+            if peer_leader_id == peer_node.node_id and my_leader_id and my_leader_id != peer_leader_id:
+                logger.warning(
+                    f"🔴🔴🔴 SPLIT-BRAIN DETECTED! 🔴🔴🔴\n"
+                    f"    REASON: Peer claims to be leader but I have a different leader\n"
+                    f"    My leader: {my_leader_id}\n"
+                    f"    Peer {peer_node.node_id} claims to be leader"
+                )
+                return True
+            
+            # No hay split-brain
+            logger.info(
+                f"✅ SPLIT-BRAIN CHECK: No split-brain detected with {peer_node.node_id} "
+                f"(same leader: {my_leader_id})"
+            )
             return False
     
     def initiate_reconciliation(self, peer_nodes: List[NodeInfo]):
         """Inicia el proceso de reconciliación con los peers."""
         with self._lock:
             if self._reconciliation_in_progress:
-                logger.info("Reconciliation already in progress, skipping")
+                logger.info("⏳ Reconciliation already in progress, skipping")
                 return
             
             time_since_last = time.time() - self._last_reconciliation
             if time_since_last < self._reconciliation_cooldown:
-                logger.debug(f"Reconciliation cooldown: {self._reconciliation_cooldown - time_since_last:.1f}s remaining")
+                logger.info(f"⏳ Reconciliation cooldown: {self._reconciliation_cooldown - time_since_last:.1f}s remaining")
                 return
             
             self._reconciliation_in_progress = True
             self._last_reconciliation = time.time()
         
-        logger.info(f"🔄 Starting split-brain reconciliation with {len(peer_nodes)} peers")
+        logger.warning(
+            f"🔄🔄🔄 STARTING SPLIT-BRAIN RECONCILIATION 🔄🔄🔄\n"
+            f"    Peers to reconcile: {[p.node_id for p in peer_nodes]}"
+        )
         
         threading.Thread(
             target=self._reconciliation_worker,
@@ -103,35 +134,53 @@ class SplitBrainReconciliation:
     def _reconciliation_worker(self, peer_nodes: List[NodeInfo]):
         """Worker thread que ejecuta la reconciliación"""
         try:
+            logger.info("📊 Step 1: Collecting state from all peers...")
+            
             # Paso 1: Recolectar estado completo de todos los peers
             peer_states = self._collect_peer_states(peer_nodes)
             
             if not peer_states:
-                logger.info("No peers responded, skipping reconciliation")
+                logger.warning("⚠️ No peers responded, skipping reconciliation")
                 return
+            
+            logger.info("🏆 Step 2: Determining canonical leader...")
             
             # Paso 2: Determinar el líder canónico usando todos los criterios
             canonical_leader = self._determine_canonical_leader(peer_states)
             
-            logger.info(f"✅ Canonical leader determined: {canonical_leader}")
+            logger.warning(
+                f"🏆🏆🏆 CANONICAL LEADER ELECTED: {canonical_leader} 🏆🏆🏆\n"
+                f"    I am: {self.node_id}\n"
+                f"    Will I be leader? {'YES ✅' if canonical_leader == self.node_id else 'NO ❌'}"
+            )
+            
+            logger.info("🔄 Step 3: Forcing leader election result...")
             
             # Paso 3: Usar el leader_election para forzar el resultado
             self._force_leader_election_result(canonical_leader, peer_states)
             
+            logger.info("📦 Step 4: Synchronizing state...")
+            
             # Paso 4: Sincronizar estado completo
             if canonical_leader == self.node_id:
+                logger.info("📤 I am the canonical leader - merging states from peers...")
                 # Soy el líder canónico, merge estados de los demás
                 self._merge_all_peer_states(peer_states)
                 # Replicar mi estado a todos los followers
                 self._replicate_state_to_followers(peer_nodes)
             else:
+                logger.info(f"📥 I am NOT the leader - synchronizing from {canonical_leader}...")
                 # No soy líder, sincronizar desde el líder
                 self._synchronize_with_leader(canonical_leader, peer_states)
             
-            logger.info("✅ Split-brain reconciliation completed successfully")
+            logger.warning(
+                f"✅✅✅ SPLIT-BRAIN RECONCILIATION COMPLETED ✅✅✅\n"
+                f"    Final leader: {canonical_leader}\n"
+                f"    My role: {'LEADER' if canonical_leader == self.node_id else 'FOLLOWER'}"
+            )
             
         except Exception as e:
-            logger.error(f"Error during reconciliation: {e}", exc_info=True)
+            logger.error(f"❌❌❌ ERROR during reconciliation: {e}", exc_info=True)
         finally:
             with self._lock:
                 self._reconciliation_in_progress = False
@@ -503,8 +552,15 @@ class SplitBrainReconciliation:
         peer_term = peer_info.get('term', 0)
         peer_leader_id = peer_info.get('leader_id')
         
+        logger.info(
+            f"🔗 PEER RECONNECT DETECTED: {peer_node.node_id}\n"
+            f"    Checking for potential split-brain..."
+        )
+        
         # Detectar split-brain
         if self.detect_split_brain(peer_node, peer_term, peer_leader_id):
+            logger.warning(f"⚠️ Split-brain confirmed! Initiating reconciliation...")
+            
             # Obtener todos los peers conocidos
             all_peers = []
             with self.metadata_server.leader_election._lock:
@@ -512,3 +568,5 @@ class SplitBrainReconciliation:
             
             # Iniciar reconciliación
             self.initiate_reconciliation(all_peers)
+        else:
+            logger.info(f"✅ No split-brain with {peer_node.node_id} - no reconciliation needed")

@@ -430,7 +430,7 @@ class MetadataServer:
     def _sync_state_from_peers(self):
         """
         Sincroniza el estado desde los peers cuando nos convertimos en líder.
-        Esto asegura que tengamos toda la información de storage nodes y réplicas.
+        Esto asegura que tengamos toda la información de storage nodes, réplicas Y namespace.
         """
         logger.info("🔄 Syncing state from peers as new leader...")
         time.sleep(2)  # Pequeño delay para estabilización
@@ -441,6 +441,9 @@ class MetadataServer:
             
             merged_storage_nodes = {}
             merged_replicas = {}
+            merged_namespace = {}
+            # Obtener paths de archivos existentes directamente
+            my_namespace_paths = set(self.namespace._namespace.keys())
             
             for peer in peers:
                 try:
@@ -474,7 +477,29 @@ class MetadataServer:
                                     if r.get('node_id') not in existing_nodes:
                                         merged_replicas[file_id].append(r)
                         
-                        logger.info(f"✅ Got state from peer {peer.node_id}: {len(peer_storage_nodes)} storage nodes")
+                        # *** MERGE NAMESPACE - CRÍTICO ***
+                        # El namespace exportado tiene estructura: {'namespace': {...files...}, 'id_index': {...}}
+                        namespace_container = snapshot.get('namespace', {})
+                        peer_namespace = namespace_container.get('namespace', {}) if isinstance(namespace_container, dict) and 'namespace' in namespace_container else namespace_container
+                        
+                        for path, file_data in peer_namespace.items():
+                            if path not in my_namespace_paths and path not in merged_namespace:
+                                # Archivo nuevo que no tenemos
+                                merged_namespace[path] = file_data
+                                logger.info(f"📄 Discovered file {path} from peer {peer.node_id}")
+                            elif path in my_namespace_paths:
+                                # Comparar versiones - quedarse con la más reciente
+                                my_meta = self.namespace._namespace.get(path)
+                                my_version = my_meta.version if my_meta else 0
+                                peer_version = file_data.get('version', 0)
+                                my_modified = my_meta.modified_at if my_meta else 0
+                                peer_modified = file_data.get('modified_at', 0)
+                                
+                                if peer_version > my_version or (peer_version == my_version and peer_modified > my_modified):
+                                    merged_namespace[path] = file_data
+                                    logger.info(f"📄 Updating file {path} (peer has newer version)")
+                        
+                        logger.info(f"✅ Got state from peer {peer.node_id}: {len(peer_storage_nodes)} storage nodes, {len(peer_namespace)} files")
                         
                 except Exception as e:
                     logger.warning(f"Failed to sync from peer {peer.node_id}: {e}")
@@ -500,7 +525,23 @@ class MetadataServer:
                     except Exception as e:
                         logger.warning(f"Failed to add replicas for {file_id}: {e}")
             
-            logger.info(f"✅ State sync completed: {len(merged_storage_nodes)} storage nodes merged")
+            # *** APLICAR NAMESPACE MERGED ***
+            files_added = 0
+            for path, file_data in merged_namespace.items():
+                try:
+                    # Importar archivo directamente al namespace
+                    self.namespace._namespace[path] = FileMetadata.from_dict(file_data)
+                    files_added += 1
+                    logger.info(f"➕ Added/Updated file {path} from peer sync")
+                except Exception as e:
+                    logger.warning(f"Failed to add file {path}: {e}")
+            
+            # Guardar namespace actualizado
+            if files_added > 0:
+                self.namespace._persist_to_disk()
+                logger.info(f"💾 Saved namespace with {files_added} new/updated files")
+            
+            logger.info(f"✅ State sync completed: {len(merged_storage_nodes)} storage nodes, {files_added} files merged")
             
         except Exception as e:
             logger.error(f"Error syncing state from peers: {e}")
@@ -2052,7 +2093,7 @@ class MetadataServer:
             'quorum_required': quorum
         }
 
-    def _send_append_to_peer_with_timeout(self, peer: NodeInfo, entry: Dict[str, Any]) -> bool:
+    def _send_append_to_peer_with_timeout(self, peer: NodeInfo, entry: Dict[str, Any], timeout: float = 5.0) -> bool:
         """Envía append a peer con timeout específico"""
         import time
         start_time = time.time()
