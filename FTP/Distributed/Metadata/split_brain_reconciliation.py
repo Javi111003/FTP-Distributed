@@ -425,47 +425,59 @@ class SplitBrainReconciliation:
         return all_namespaces
 
     def _create_unified_namespace(self, all_namespaces: Dict[str, Dict]) -> Dict[str, Dict]:
-        """Crea un namespace unificado que contiene TODOS los archivos de todos los nodos."""
+        """Crea un namespace unificado que contiene TODOS los archivos de todos los nodos, con consistencia física."""
         unified = {}
         conflicts_handled = 0
+        new_files_replicated = 0
 
         logger.info("🔄 Creating unified namespace from all node namespaces...")
 
-        # Procesar cada namespace fuente
+        # PASO 1: Recopilar TODOS los archivos posibles
+        all_files = {}
         for source_node, namespace in all_namespaces.items():
-            logger.debug(f"Processing {len(namespace)} files from {source_node}")
-
             for path, file_data in namespace.items():
-                try:
-                    file_meta = FileMetadata.from_dict(file_data)
+                if path not in all_files:
+                    all_files[path] = []
+                all_files[path].append((source_node, file_data))
 
-                    if path not in unified:
-                        # Archivo nuevo - agregarlo directamente
+        # PASO 2: Procesar cada archivo
+        for path, sources in all_files.items():
+            try:
+                if len(sources) == 1:
+                    # 🔄 ARCHIVO NUEVO: Solo existe en un nodo, necesita replicación física
+                    source_node, file_data = sources[0]
+                    meta = FileMetadata.from_dict(file_data)
+
+                    # Intentar replicar físicamente a todos los storage nodes disponibles
+                    success = self._replicate_file_to_all_storages(meta, source_node)
+
+                    if success:
                         unified[path] = file_data
-                        logger.debug(f"➕ Added {path} from {source_node}")
+                        new_files_replicated += 1
+                        logger.debug(f"➕ Added and replicated {path} from {source_node}")
                     else:
-                        # Archivo existente - verificar conflicto
-                        existing_meta = FileMetadata.from_dict(unified[path])
+                        logger.warning(f"⚠️ Could not replicate {path} from {source_node}, skipping")
 
-                        if self._is_conflicting_file(existing_meta, file_meta):
-                            # CONFLICTO - Crear versiones v1 y v2
-                            conflicts_handled += 1
-                            unified = self._resolve_conflict_in_unified(path, existing_meta, file_meta, source_node, unified)
-                            logger.info(f"🔀 Resolved conflict for {path} - created v1/v2 versions")
-                        elif file_meta.modified_at > existing_meta.modified_at:
-                            # Versión más nueva - actualizar
-                            unified[path] = file_data
-                            logger.debug(f"📝 Updated {path} with newer version from {source_node}")
-                        # Si la existente es más nueva, mantenerla
+                else:
+                    # 🔀 ARCHIVOS MÚLTIPLES: Posible conflicto
+                    unified, conflict_count = self._resolve_multiple_sources(path, sources, unified)
+                    conflicts_handled += conflict_count
 
-                except Exception as e:
-                    logger.warning(f"Error processing file {path} from {source_node}: {e}")
+            except Exception as e:
+                logger.warning(f"Error processing file {path}: {e}")
 
-        logger.info(f"✅ Unified namespace created: {len(unified)} files, {conflicts_handled} conflicts resolved")
+        logger.info(f"✅ Unified namespace created: {len(unified)} files")
+        logger.info(f"   - {conflicts_handled} conflicts resolved")
+        logger.info(f"   - {new_files_replicated} new files replicated")
+
+        # 🔍 VERIFICACIÓN CRÍTICA: Asegurar consistencia física
+        unified = self._verify_physical_consistency(unified)
+
         return unified
 
     def _resolve_conflict_in_unified(self, path: str, meta1: FileMetadata, meta2: FileMetadata, source_node: str, unified: Dict[str, Dict]) -> Dict[str, Dict]:
-        """Resuelve conflictos en el namespace unificado creando versiones v1/v2."""
+        """Resuelve conflictos en el namespace unificado creando versiones v1/v2 con archivos físicos."""
+
         # Crear versiones con nombres únicos
         if '/' in path:
             dir_path = path.rsplit('/', 1)[0]
@@ -484,50 +496,40 @@ class SplitBrainReconciliation:
         # Crear v1 (del namespace existente)
         v1_name = f"{name_base}_v1{extension}"
         v1_path = f"{dir_path}/{v1_name}" if dir_path != '/' else f"/{v1_name}"
-        v1_meta = FileMetadata(
-            file_id=meta1.file_id,
-            path=v1_path,
-            name=v1_name,
-            size=meta1.size,
-            owner=meta1.owner,
-            group=meta1.group,
-            permissions=meta1.permissions,
-            version=meta1.version,
-            created_at=meta1.created_at,
-            modified_at=meta1.modified_at,
-            is_directory=False,
-            replicas=meta1.replicas,
-            checksum=meta1.checksum
-        )
 
         # Crear v2 (del nuevo source)
         v2_name = f"{name_base}_v2_{source_node}{extension}"
         v2_path = f"{dir_path}/{v2_name}" if dir_path != '/' else f"/{v2_name}"
-        v2_meta = FileMetadata(
-            file_id=meta2.file_id,
-            path=v2_path,
-            name=v2_name,
-            size=meta2.size,
-            owner=meta2.owner,
-            group=meta2.group,
-            permissions=meta2.permissions,
-            version=meta2.version,
-            created_at=meta2.created_at,
-            modified_at=meta2.modified_at,
-            is_directory=False,
-            replicas=meta2.replicas,
-            checksum=meta2.checksum
-        )
 
-        # Agregar las versiones al namespace unificado
-        unified[v1_path] = v1_meta.to_dict()
-        unified[v2_path] = v2_meta.to_dict()
+        # 🔄 PASO CRÍTICO: Copiar archivos físicos para ambas versiones
+        success_v1 = self._physically_copy_versioned_file(meta1, v1_path, 'v1')
+        success_v2 = self._physically_copy_versioned_file(meta2, v2_path, 'v2')
+
+        if not success_v1:
+            logger.warning(f"⚠️ No se pudo copiar físicamente la versión v1 de {path}")
+        if not success_v2:
+            logger.warning(f"⚠️ No se pudo copiar físicamente la versión v2 de {path}")
+
+        # Solo crear metadatos si el archivo físico existe
+        if success_v1:
+            # El metadato ya fue creado en _create_physical_file_copy
+            logger.debug(f"✅ Added v1 version: {v1_path}")
+
+        if success_v2:
+            # El metadato ya fue creado en _create_physical_file_copy
+            logger.debug(f"✅ Added v2 version: {v2_path}")
 
         # Remover el archivo original conflictivo
         if path in unified:
             del unified[path]
 
-        logger.info(f"✅ Created conflict versions: {v1_path} and {v2_path}")
+        created_versions = []
+        if success_v1:
+            created_versions.append(v1_path)
+        if success_v2:
+            created_versions.append(v2_path)
+
+        logger.info(f"✅ Created conflict versions with physical files: {created_versions}")
         return unified
 
     def _replace_namespace_with_unified(self, unified_namespace: Dict[str, Dict]):
@@ -777,3 +779,219 @@ class SplitBrainReconciliation:
             self.initiate_reconciliation(all_peers)
         else:
             logger.info(f"✅ No split-brain with {peer_node.node_id} - no reconciliation needed")
+
+    def _generate_new_file_id(self) -> str:
+        """Genera un nuevo file_id único para versiones conflictivas."""
+        import uuid
+        return str(uuid.uuid4())
+
+    def _physically_copy_versioned_file(self, original_meta: FileMetadata, new_path: str, version_label: str) -> bool:
+        """
+        Copia físicamente un archivo a una nueva ruta versionada.
+        Retorna True si el archivo físico está disponible.
+        """
+        from ..Router.storage_client import StorageClient
+
+        try:
+            storage_client = StorageClient()
+
+            # Intentar recuperar el archivo original de cualquiera de sus réplicas
+            data = storage_client.retrieve_from_any(original_meta.replicas, original_meta.file_id)
+
+            if data is None:
+                logger.warning(f"Cannot copy {version_label} - original file {original_meta.file_id} not physically available")
+                return False
+
+            # Crear nueva entrada en metadata y storage para el archivo versionado
+            success = self._create_physical_file_copy(original_meta, new_path, data, version_label)
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error copying {version_label} file physically: {e}")
+            return False
+
+    def _create_physical_file_copy(self, original_meta: FileMetadata, new_path: str, data: bytes, version_label: str) -> bool:
+        """Crea una copia física del archivo en una nueva ruta."""
+        from ..Router.storage_client import StorageClient
+
+        try:
+            storage_client = StorageClient()
+
+            # Obtener storage nodes activos para la nueva copia
+            active_storages = self.metadata_server.replica_manager.get_available_storage_nodes()
+
+            if not active_storages:
+                logger.warning(f"No active storage nodes for {version_label} copy")
+                return False
+
+            # Crear nueva entrada en metadata
+            new_file_id = self._generate_new_file_id()
+
+            # Crear metadata para el nuevo archivo
+            new_meta = FileMetadata(
+                file_id=new_file_id,
+                path=new_path,
+                name=new_path.split('/')[-1],
+                size=len(data),
+                owner=original_meta.owner,
+                group=original_meta.group,
+                permissions=original_meta.permissions,
+                version=1,
+                created_at=original_meta.created_at,
+                modified_at=original_meta.modified_at,
+                is_directory=False,
+                replicas=[],
+                checksum=original_meta.checksum
+            )
+
+            # Almacenar físicamente en los storage nodes
+            replica_list = [{'host': node.host, 'port': node.port} for node in active_storages]
+            successful_stores = storage_client.store_with_replication(replica_list, new_file_id, data, 1)
+
+            if successful_stores > 0:
+                # Actualizar réplicas en metadata
+                new_meta.replicas = replica_list[:successful_stores]
+
+                # Agregar al namespace
+                self.metadata_server.namespace.upsert_entry(new_meta)
+
+                logger.info(f"✅ Created physical copy {version_label} at {new_path} (id={new_file_id})")
+                return True
+            else:
+                logger.error(f"Failed to store {version_label} copy physically")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error creating physical file copy: {e}")
+            return False
+
+    def _replicate_file_to_all_storages(self, meta: FileMetadata, source_node: str) -> bool:
+        """Replica físicamente un archivo a todos los storage nodes disponibles."""
+        from ..Router.storage_client import StorageClient
+
+        try:
+            storage_client = StorageClient()
+
+            # Obtener el contenido del archivo desde su ubicación actual
+            data = storage_client.retrieve_from_any(meta.replicas, meta.file_id)
+
+            if data is None:
+                logger.warning(f"Cannot replicate {meta.path} - file not physically available in source")
+                return False
+
+            # Obtener todos los storage nodes activos
+            all_storage_nodes = self.metadata_server.replica_manager.get_available_storage_nodes()
+
+            if not all_storage_nodes:
+                logger.warning(f"No active storage nodes available for replication of {meta.path}")
+                return False
+
+            # Filtrar nodos que ya tienen el archivo
+            existing_replicas = {r.get('host') + ':' + str(r.get('port')) for r in meta.replicas}
+            nodes_to_replicate = []
+
+            for node in all_storage_nodes:
+                node_key = f"{node.host}:{node.port}"
+                if node_key not in existing_replicas:
+                    nodes_to_replicate.append({'host': node.host, 'port': node.port})
+
+            if not nodes_to_replicate:
+                logger.info(f"File {meta.path} already replicated to all active storage nodes")
+                return True
+
+            # Replicar a nodos faltantes
+            successful_replicas = storage_client.store_with_replication(
+                nodes_to_replicate, meta.file_id, data, meta.version
+            )
+
+            if successful_replicas > 0:
+                # Actualizar las réplicas del metadato
+                meta.replicas.extend(nodes_to_replicate[:successful_replicas])
+                logger.info(f"✅ Replicated {meta.path} to {successful_replicas} additional storage nodes")
+                return True
+            else:
+                logger.error(f"Failed to replicate {meta.path} to any additional storage node")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error replicating {meta.path}: {e}")
+            return False
+
+    def _files_are_identical(self, meta1: FileMetadata, meta2: FileMetadata) -> bool:
+        """Verifica si dos archivos son físicamente idénticos."""
+        return (meta1.checksum == meta2.checksum and
+                meta1.size == meta2.size)
+
+    def _resolve_multiple_sources(self, path: str, sources: List[Tuple[str, Dict]], unified: Dict[str, Dict]) -> Tuple[Dict[str, Dict], int]:
+        """Resuelve archivos que existen en múltiples fuentes (posibles conflictos). Retorna unified dict y conflict count."""
+        conflicts_handled = 0
+
+        # Si todos los archivos son idénticos, usar cualquiera
+        first_meta = FileMetadata.from_dict(sources[0][1])
+        all_identical = True
+
+        for source_node, file_data in sources[1:]:
+            meta = FileMetadata.from_dict(file_data)
+            if not self._files_are_identical(first_meta, meta):
+                all_identical = False
+                break
+
+        if all_identical:
+            # Todos iguales, usar el primero
+            unified[path] = sources[0][1]
+            logger.debug(f"✓ All sources identical for {path}, using first")
+            return unified, conflicts_handled
+
+        # Hay diferencias - resolver como conflicto
+        conflicts_handled += 1
+        existing_meta = FileMetadata.from_dict(sources[0][1])
+
+        for source_node, file_data in sources[1:]:
+            meta = FileMetadata.from_dict(file_data)
+
+            if self._is_conflicting_file(existing_meta, meta):
+                # CONFLICTO - Crear versiones v1 y v2
+                unified = self._resolve_conflict_in_unified(path, existing_meta, meta, source_node, unified)
+                logger.info(f"🔀 Resolved conflict for {path} - created v1/v2 versions")
+            elif meta.modified_at > existing_meta.modified_at:
+                # Versión más nueva
+                existing_meta = meta
+                unified[path] = file_data
+                logger.debug(f"📝 Updated {path} with newer version from {source_node}")
+
+        # Usar la versión "ganadora"
+        unified[path] = existing_meta.to_dict()
+
+        return unified, conflicts_handled
+
+    def _verify_physical_consistency(self, unified_namespace: Dict[str, Dict]):
+        """Verifica que todos los archivos del namespace unificado estén físicamente disponibles."""
+        from ..Router.storage_client import StorageClient
+
+        logger.info("🔍 Verifying physical consistency of unified namespace...")
+        storage_client = StorageClient()
+        inconsistent_files = []
+
+        for path, file_data in unified_namespace.items():
+            try:
+                meta = FileMetadata.from_dict(file_data)
+                if not meta.is_directory:
+                    # Verificar si el archivo existe físicamente en al menos una réplica
+                    data = storage_client.retrieve_from_any(meta.replicas, meta.file_id)
+                    if data is None:
+                        inconsistent_files.append(path)
+                        logger.warning(f"⚠️ File {path} (id={meta.file_id}) not physically available")
+            except Exception as e:
+                logger.error(f"Error checking physical consistency for {path}: {e}")
+                inconsistent_files.append(path)
+
+        if inconsistent_files:
+            logger.warning(f"❌ Found {len(inconsistent_files)} files without physical copies: {inconsistent_files}")
+            # Remover archivos inconsistentes del namespace
+            for path in inconsistent_files:
+                if path in unified_namespace:
+                    del unified_namespace[path]
+                    logger.info(f"🗑️ Removed inconsistent file {path} from unified namespace")
+
+        return unified_namespace
