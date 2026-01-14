@@ -1176,13 +1176,24 @@ class MetadataServer:
                                 size=len(data),
                                 is_primary=False
                             )
-                            
+
                             with self.replica_manager._lock:
                                 if file_id not in self.replica_manager._replicas:
                                     self.replica_manager._replicas[file_id] = []
                                 self.replica_manager._replicas[file_id].append(new_replica)
                                 self.replica_manager._node_files[target_node.node_id].add(file_id)
-                            
+
+                            # *** CRÍTICO: Actualizar namespace con las réplicas completas ***
+                            # Obtener path del archivo y lista completa de réplicas
+                            file_path = self.namespace._id_index.get(file_id)
+                            if file_path:
+                                # Obtener TODAS las réplicas del replica_manager (no solo UP)
+                                all_replicas = [replica.node_id for replica in self.replica_manager.get_replicas(file_id)]
+
+                                # Actualizar namespace con la lista completa de réplicas
+                                self.namespace.update_file_replicas(file_path, all_replicas)
+                                logger.info(f"✅ Updated namespace replicas for {file_path}: {all_replicas}")
+
                             logger.info(f"✅ Replicated {file_id} to {target_node.node_id}")
                         else:
                             logger.warning(f"❌ Failed to replicate {file_id} to {target_node.node_id}")
