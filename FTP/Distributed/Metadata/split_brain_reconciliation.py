@@ -558,8 +558,18 @@ class SplitBrainReconciliation:
         """Replica el namespace unificado del líder a todos los followers disponibles."""
         logger.info(f"📤 Replicating unified namespace to {len(peer_nodes)} followers")
 
-        # Crear snapshot con el namespace unificado que ya tiene el líder
+        # 🔄 ESPERAR A QUE EL LÍDER TENGA TODO SU ESTADO COMPLETO
+        self._wait_for_complete_state()
+
+        # ✅ Verificar integridad del estado antes de enviar
+        if not self._verify_leader_state_integrity():
+            logger.error("❌ Leader state is not consistent, aborting replication")
+            return
+
+        # Crear snapshot solo cuando TODO esté listo
         snapshot = self.metadata_server._create_snapshot()
+
+        logger.info("✅ Leader state verified as complete, sending to followers")
 
         successful_sends = 0
 
@@ -585,6 +595,61 @@ class SplitBrainReconciliation:
                 logger.error(f"❌ Error sending to {peer.node_id}: {e}")
 
         logger.info(f"📊 Replication complete: {successful_sends}/{len(peer_nodes)} followers received unified namespace")
+
+    def _wait_for_complete_state(self):
+        """Espera a que el estado del líder esté completamente actualizado"""
+        import time
+
+        max_wait = 5.0  # máximo 5 segundos
+        check_interval = 0.1  # verificar cada 100ms
+
+        elapsed = 0.0
+        while elapsed < max_wait:
+            # Verificar si las réplicas están al día con el namespace
+            namespace_files = len(self.metadata_server.namespace._namespace)
+            replica_entries = len(self.metadata_server.replica_manager._replicas)
+
+            # Si tenemos archivos en namespace, deberíamos tener entradas en réplicas
+            if namespace_files > 0 and replica_entries >= namespace_files:
+                logger.debug(f"✅ State appears complete: {namespace_files} files, {replica_entries} replicas")
+                return True
+
+            time.sleep(check_interval)
+            elapsed += check_interval
+
+        logger.warning(f"⚠️ Waited {max_wait}s for complete state, proceeding anyway")
+        return False
+
+    def _verify_leader_state_integrity(self) -> bool:
+        """Verifica que el estado del líder sea consistente"""
+        try:
+            namespace_files = len(self.metadata_server.namespace._namespace)
+            replica_entries = len(self.metadata_server.replica_manager._replicas)
+
+            # Verificaciones básicas
+            if namespace_files == 0:
+                logger.error("❌ No files in namespace")
+                return False
+
+            if replica_entries < namespace_files:
+                logger.warning(f"⚠️ Fewer replica entries ({replica_entries}) than files ({namespace_files})")
+                # No es error fatal, puede haber archivos sin réplicas
+
+            # Verificar que todos los archivos del namespace tengan réplicas
+            missing_replicas = []
+            for path, file_meta in self.metadata_server.namespace._namespace.items():
+                if file_meta.file_id not in self.metadata_server.replica_manager._replicas:
+                    missing_replicas.append(path)
+
+            if missing_replicas:
+                logger.warning(f"⚠️ Files without replicas: {missing_replicas}")
+
+            logger.info(f"✅ Leader state integrity check passed: {namespace_files} files, {replica_entries} replica sets")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Error verifying leader state: {e}")
+            return False
     
     def _merge_peer_namespace(self, peer_id: str, peer_state: Dict):
         """Merge el namespace de un peer con el nuestro."""

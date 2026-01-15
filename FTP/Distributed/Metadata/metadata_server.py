@@ -99,6 +99,8 @@ class MetadataServer:
         self._last_applied = -1
         self._applied_ops = set()
         self._current_term = 0
+        # Lock global para proteger instalación de snapshots y evitar race conditions
+        self._global_state_lock = threading.RLock()
 
     def _rebuild_replica_manager_from_namespace(self):
         """Reconstruye el estado del replica_manager desde el namespace cargado"""
@@ -2439,15 +2441,17 @@ class MetadataServer:
         # Si recibimos snapshot para instalar
         snapshot = msg.payload.get('snapshot')
         if snapshot:
-            self._install_snapshot(snapshot)
-            # Limpiar log porque snapshot ya incluye estado
-            with self._log_lock:
-                self._oplog = []
-                try:
-                    if os.path.exists(self.log_path):
-                        os.remove(self.log_path)
-                except OSError:
-                    pass
+            # 🔒 LOCK GLOBAL: Proteger instalación completa contra race conditions
+            with self._global_state_lock:
+                self._install_snapshot(snapshot)
+                # Limpiar log porque snapshot ya incluye estado
+                with self._log_lock:
+                    self._oplog = []
+                    try:
+                        if os.path.exists(self.log_path):
+                            os.remove(self.log_path)
+                    except OSError:
+                        pass
             return RPCMessage(
                 MessageType.REPL_SNAPSHOT_RESPONSE,
                 {'status': DistributedResponseCode.SUCCESS.value},
