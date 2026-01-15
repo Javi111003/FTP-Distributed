@@ -102,6 +102,11 @@ class MetadataServer:
         # Lock global para proteger instalación de snapshots y evitar race conditions
         self._global_state_lock = threading.RLock()
 
+        # Monitor de consistencia automática
+        self._consistency_thread: Optional[threading.Thread] = None
+        self._last_consistency_check = 0
+        self._consistency_check_interval = 15  # segundos
+
     def _rebuild_replica_manager_from_namespace(self):
         """Reconstruye el estado del replica_manager desde el namespace cargado"""
         try:
@@ -342,7 +347,10 @@ class MetadataServer:
             daemon=True
         )
         self._heartbeat_thread.start()
-        
+
+        # Iniciar monitor de consistencia automática
+        self._start_consistency_monitor()
+
         logger.info(f"Metadata server started: {self.node_id} on {self.host}:{self.port}")
         
         # Mantener el servidor corriendo
@@ -360,6 +368,131 @@ class MetadataServer:
         self.leader_election.stop()
         self.lock_manager.stop()
         logger.info("Metadata server stopped")
+
+    def _start_consistency_monitor(self):
+        """Inicia el thread que monitorea consistencia del cluster cada 15 segundos"""
+        def consistency_worker():
+            logger.info("🔍 CONSISTENCY MONITOR STARTED - Checking every 15 seconds")
+            while self._running:
+                try:
+                    time.sleep(self._consistency_check_interval)
+                    self._check_cluster_consistency()
+                except Exception as e:
+                    logger.error(f"Consistency monitor error: {e}")
+                    time.sleep(5)  # Esperar antes de reintentar
+
+        self._consistency_thread = threading.Thread(target=consistency_worker, daemon=True)
+        self._consistency_thread.start()
+
+    def _check_cluster_consistency(self):
+        """Verifica que todos los followers tengan la misma info que el líder"""
+        if not self.leader_election.is_leader():
+            return  # Solo el líder hace las verificaciones
+
+        current_time = time.time()
+        if current_time - self._last_consistency_check < self._consistency_check_interval:
+            return  # Aún no es tiempo
+
+        self._last_consistency_check = current_time
+
+        # Obtener peers activos
+        active_peers = []
+        with self.leader_election._lock:
+            active_peers = list(self.leader_election._peers.values())
+
+        if not active_peers:
+            logger.debug("No active peers to check consistency")
+            return
+
+        logger.info(f"🔍 Checking consistency with {len(active_peers)} peers...")
+
+        # Verificar cada peer
+        inconsistent_peers = []
+        for peer in active_peers:
+            if not self._verify_peer_consistency(peer):
+                inconsistent_peers.append(peer)
+
+        # Sincronizar peers inconsistentes
+        if inconsistent_peers:
+            logger.warning(f"🚨 Found {len(inconsistent_peers)} inconsistent peers, synchronizing...")
+            for peer in inconsistent_peers:
+                self._sync_peer_with_leader(peer)
+        else:
+            logger.info("✅ All peers are consistent with leader")
+
+    def _verify_peer_consistency(self, peer: NodeInfo) -> bool:
+        """Verifica si un peer tiene namespace consistente con el líder"""
+        try:
+            # Consultar namespace del peer
+            msg = RPCMessage(MessageType.GET_CURRENT_NAMESPACE, {})
+            response = self._rpc_client.call(peer.host, peer.port, msg, timeout=5)
+
+            if not response or not response.payload.get('namespace'):
+                logger.warning(f"❌ No response from {peer.node_id}")
+                return False
+
+            peer_namespace = response.payload['namespace']
+            leader_namespace = self.namespace._namespace
+
+            # Verificación rápida: contar archivos
+            peer_count = len(peer_namespace)
+            leader_count = len(leader_namespace)
+
+            if peer_count != leader_count:
+                logger.warning(f"❌ {peer.node_id}: {peer_count} files vs leader {leader_count} files")
+                return False
+
+            # Verificación más profunda: comparar algunos archivos clave
+            sample_files = list(leader_namespace.keys())[:3]  # Primeros 3 archivos
+
+            for path in sample_files:
+                if path not in peer_namespace:
+                    logger.warning(f"❌ {peer.node_id}: missing file {path}")
+                    return False
+
+                leader_meta = leader_namespace[path]
+                peer_meta = peer_namespace[path]
+
+                if leader_meta.file_id != peer_meta.get('file_id'):
+                    logger.warning(f"❌ {peer.node_id}: file {path} has different version")
+                    return False
+
+            logger.debug(f"✅ {peer.node_id}: consistent ({peer_count} files)")
+            return True
+
+        except Exception as e:
+            logger.warning(f"❌ Error checking {peer.node_id}: {e}")
+            return False
+
+    def _sync_peer_with_leader(self, peer: NodeInfo):
+        """Sincroniza un peer con el estado actual del líder"""
+        try:
+            logger.info(f"🔄 Synchronizing {peer.node_id} with leader...")
+
+            # Crear snapshot completo del líder
+            snapshot = self._create_snapshot()
+
+            # Enviar snapshot con lock global para evitar race conditions
+            msg = RPCMessage(
+                MessageType.REPL_SNAPSHOT,
+                {
+                    'snapshot': snapshot,
+                    'from_leader': True,
+                    'force_install': True,
+                    'consistency_sync': True  # Flag especial para distinguir de reconciliación
+                }
+            )
+
+            with self._global_state_lock:  # 🔒 Proteger contra operaciones concurrentes
+                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=10)
+
+            if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                logger.info(f"✅ Successfully synchronized {peer.node_id}")
+            else:
+                logger.error(f"❌ Failed to synchronize {peer.node_id}")
+
+        except Exception as e:
+            logger.error(f"❌ Error synchronizing {peer.node_id}: {e}")
         
     def _metadata_heartbeat_loop(self):
         """Envía heartbeats periódicos a otros nodos metadata"""
