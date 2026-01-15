@@ -555,12 +555,14 @@ class SplitBrainReconciliation:
             raise
 
     def _replicate_state_to_followers(self, peer_nodes: List[NodeInfo]):
-        """Replica el estado completo a todos los followers."""
-        logger.info(f"📤 Replicating state to {len(peer_nodes)} followers")
-        
-        # Crear snapshot completo
+        """Replica el namespace unificado del líder a todos los followers disponibles."""
+        logger.info(f"📤 Replicating unified namespace to {len(peer_nodes)} followers")
+
+        # Crear snapshot con el namespace unificado que ya tiene el líder
         snapshot = self.metadata_server._create_snapshot()
-        
+
+        successful_sends = 0
+
         for peer in peer_nodes:
             try:
                 msg = RPCMessage(
@@ -572,14 +574,17 @@ class SplitBrainReconciliation:
                     }
                 )
                 response = self._rpc_client.call(peer.host, peer.port, msg)
-                
+
                 if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
-                    logger.info(f"✅ Successfully replicated state to {peer.node_id}")
+                    logger.info(f"✅ Unified namespace sent to {peer.node_id}")
+                    successful_sends += 1
                 else:
-                    logger.warning(f"Failed to replicate state to {peer.node_id}")
-                    
+                    logger.warning(f"❌ Failed to send unified namespace to {peer.node_id}")
+
             except Exception as e:
-                logger.error(f"Error replicating to {peer.node_id}: {e}")
+                logger.error(f"❌ Error sending to {peer.node_id}: {e}")
+
+        logger.info(f"📊 Replication complete: {successful_sends}/{len(peer_nodes)} followers received unified namespace")
     
     def _merge_peer_namespace(self, peer_id: str, peer_state: Dict):
         """Merge el namespace de un peer con el nuestro."""
