@@ -425,7 +425,7 @@ class MetadataServer:
         try:
             # Consultar namespace del peer
             msg = RPCMessage(MessageType.GET_CURRENT_NAMESPACE, {})
-            response = self._rpc_client.call(peer.host, peer.port, msg, timeout=5)
+            response = self._rpc_client.call(peer.host, peer.port, msg)
 
             if not response or not response.payload.get('namespace'):
                 logger.warning(f"❌ No response from {peer.node_id}")
@@ -484,7 +484,7 @@ class MetadataServer:
             )
 
             with self._global_state_lock:  # 🔒 Proteger contra operaciones concurrentes
-                response = self._rpc_client.call(peer.host, peer.port, msg, timeout=10)
+                response = self._rpc_client.call(peer.host, peer.port, msg)
 
             if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
                 logger.info(f"✅ Successfully synchronized {peer.node_id}")

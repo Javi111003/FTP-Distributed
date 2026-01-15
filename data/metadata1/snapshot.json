@@ -1,6 +1,6 @@
 {
-  "checksum": "7abcc983b995c570457d8ca072079c6f",
-  "commit_index": 6,
+  "checksum": "7082f3b8352673325f039cab2db0eab6",
+  "commit_index": -1,
   "locks": {
     "read_locks": {},
     "write_locks": {}
@@ -8,11 +8,11 @@
   "namespace": {
     "/": {
       "checksum": null,
-      "created_at": 1768517810.5059893,
-      "file_id": "c194b020-9554-45ce-9e0f-f081bb7974f4",
+      "created_at": 1768520181.4431908,
+      "file_id": "82c3d8d7-2afe-4efe-b09d-708a97507f98",
       "group": "users",
       "is_directory": true,
-      "modified_at": 1768517810.5059898,
+      "modified_at": 1768520181.4431913,
       "name": "/",
       "owner": "root",
       "path": "/",
@@ -64,7 +64,9 @@
       "permissions": 6,
       "replicas": [
         "storage-2",
-        "storage-4"
+        "storage-4",
+        "storage-1",
+        "storage-3"
       ],
       "size": 6,
       "version": 2
@@ -165,7 +167,9 @@
       "permissions": 6,
       "replicas": [
         "storage-1",
-        "storage-3"
+        "storage-3",
+        "storage-2",
+        "storage-4"
       ],
       "size": 23186,
       "version": 3
@@ -184,8 +188,6 @@
       "replicas": [
         "storage-2",
         "storage-4",
-        "storage-1",
-        "storage-3",
         "storage-1",
         "storage-3"
       ],
@@ -220,7 +222,9 @@
       "permissions": 6,
       "replicas": [
         "storage-2",
-        "storage-4"
+        "storage-4",
+        "storage-1",
+        "storage-3"
       ],
       "size": 23186,
       "version": 2
@@ -233,37 +237,37 @@
           "checksum": null,
           "file_id": "1612e43a-5387-4625-a440-b17d06e86dee",
           "is_primary": true,
-          "last_sync": 1768518224.3881102,
+          "last_sync": 1768520186.230372,
           "node_id": "storage-2",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "1612e43a-5387-4625-a440-b17d06e86dee",
           "is_primary": false,
-          "last_sync": 1768518224.3881154,
+          "last_sync": 1768520186.2303724,
           "node_id": "storage-4",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "1612e43a-5387-4625-a440-b17d06e86dee",
           "is_primary": false,
-          "last_sync": 1768518346.4906414,
+          "last_sync": 1768520186.2303727,
           "node_id": "storage-1",
           "size": 23186,
-          "version": 1
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "1612e43a-5387-4625-a440-b17d06e86dee",
           "is_primary": false,
-          "last_sync": 1768518354.0999763,
+          "last_sync": 1768520186.2303731,
           "node_id": "storage-3",
           "size": 23186,
-          "version": 1
+          "version": 2
         }
       ],
       "1e4d0486-acc5-4d87-8755-561b4511710a": [
@@ -309,55 +313,37 @@
           "checksum": null,
           "file_id": "624d9df9-27d7-436a-b631-752f776e9c14",
           "is_primary": true,
-          "last_sync": 1768518196.5506754,
+          "last_sync": 1768520186.230364,
           "node_id": "storage-2",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "624d9df9-27d7-436a-b631-752f776e9c14",
           "is_primary": false,
-          "last_sync": 1768518196.5506873,
+          "last_sync": 1768520186.2303646,
           "node_id": "storage-4",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "624d9df9-27d7-436a-b631-752f776e9c14",
           "is_primary": false,
-          "last_sync": 1768518346.4279213,
+          "last_sync": 1768520186.230365,
           "node_id": "storage-1",
           "size": 23186,
-          "version": 1
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "624d9df9-27d7-436a-b631-752f776e9c14",
           "is_primary": false,
-          "last_sync": 1768518353.9084978,
+          "last_sync": 1768520186.2303653,
           "node_id": "storage-3",
           "size": 23186,
-          "version": 1
-        },
-        {
-          "checksum": null,
-          "file_id": "624d9df9-27d7-436a-b631-752f776e9c14",
-          "is_primary": false,
-          "last_sync": 1768519383.9242976,
-          "node_id": "storage-1",
-          "size": 23186,
-          "version": 1
-        },
-        {
-          "checksum": null,
-          "file_id": "624d9df9-27d7-436a-b631-752f776e9c14",
-          "is_primary": false,
-          "last_sync": 1768519383.9297647,
-          "node_id": "storage-3",
-          "size": 23186,
-          "version": 1
+          "version": 2
         }
       ],
       "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea": [
@@ -365,37 +351,37 @@
           "checksum": null,
           "file_id": "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea",
           "is_primary": true,
-          "last_sync": 1768518213.0078533,
+          "last_sync": 1768520186.2303567,
           "node_id": "storage-1",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 3
         },
         {
           "checksum": null,
           "file_id": "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea",
           "is_primary": false,
-          "last_sync": 1768518213.0078564,
+          "last_sync": 1768520186.230357,
           "node_id": "storage-3",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 3
         },
         {
           "checksum": null,
           "file_id": "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea",
           "is_primary": false,
-          "last_sync": 1768518346.614405,
+          "last_sync": 1768520186.2303574,
           "node_id": "storage-2",
           "size": 23186,
-          "version": 1
+          "version": 3
         },
         {
           "checksum": null,
           "file_id": "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea",
           "is_primary": false,
-          "last_sync": 1768518856.7775238,
+          "last_sync": 1768520186.2303576,
           "node_id": "storage-4",
           "size": 23186,
-          "version": 1
+          "version": 3
         }
       ],
       "9d1c6308-033e-4b7e-a1aa-adf6c19dd47a": [
@@ -403,37 +389,37 @@
           "checksum": null,
           "file_id": "9d1c6308-033e-4b7e-a1aa-adf6c19dd47a",
           "is_primary": true,
-          "last_sync": 1768518065.806956,
+          "last_sync": 1768520186.2303402,
           "node_id": "storage-2",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "9d1c6308-033e-4b7e-a1aa-adf6c19dd47a",
           "is_primary": false,
-          "last_sync": 1768518065.806962,
+          "last_sync": 1768520186.230341,
           "node_id": "storage-4",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "9d1c6308-033e-4b7e-a1aa-adf6c19dd47a",
           "is_primary": false,
-          "last_sync": 1768518065.8069634,
+          "last_sync": 1768520186.2303414,
           "node_id": "storage-1",
-          "size": 0,
-          "version": 1
+          "size": 23186,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "9d1c6308-033e-4b7e-a1aa-adf6c19dd47a",
           "is_primary": false,
-          "last_sync": 1768518159.250387,
+          "last_sync": 1768520217.5646834,
           "node_id": "storage-3",
           "size": 23186,
-          "version": 1
+          "version": 2
         }
       ],
       "acc55d20-d8a0-44b1-9c70-d1463f28546c": [
@@ -441,37 +427,37 @@
           "checksum": null,
           "file_id": "acc55d20-d8a0-44b1-9c70-d1463f28546c",
           "is_primary": true,
-          "last_sync": 1768518267.5359392,
+          "last_sync": 1768520186.2303078,
           "node_id": "storage-2",
-          "size": 0,
-          "version": 1
+          "size": 6,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "acc55d20-d8a0-44b1-9c70-d1463f28546c",
           "is_primary": false,
-          "last_sync": 1768518267.5359526,
+          "last_sync": 1768520186.2303102,
           "node_id": "storage-4",
-          "size": 0,
-          "version": 1
+          "size": 6,
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "acc55d20-d8a0-44b1-9c70-d1463f28546c",
           "is_primary": false,
-          "last_sync": 1768518346.5256133,
+          "last_sync": 1768520186.2303107,
           "node_id": "storage-1",
           "size": 6,
-          "version": 1
+          "version": 2
         },
         {
           "checksum": null,
           "file_id": "acc55d20-d8a0-44b1-9c70-d1463f28546c",
           "is_primary": false,
-          "last_sync": 1768518354.1244287,
+          "last_sync": 1768520186.2303112,
           "node_id": "storage-3",
           "size": 6,
-          "version": 1
+          "version": 2
         }
       ],
       "ece66655-516e-4a56-ba02-b49c95d812a5": [
@@ -479,44 +465,35 @@
           "checksum": null,
           "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
           "is_primary": true,
-          "last_sync": 1768518077.5686574,
+          "last_sync": 1768520186.2303495,
           "node_id": "storage-3",
-          "size": 0,
-          "version": 1
-        },
-        {
-          "checksum": null,
-          "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
-          "is_primary": false,
-          "last_sync": 1768518077.5686615,
-          "node_id": "storage-2",
-          "size": 0,
-          "version": 1
-        },
-        {
-          "checksum": null,
-          "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
-          "is_primary": false,
-          "last_sync": 1768518077.568663,
-          "node_id": "storage-4",
-          "size": 0,
-          "version": 1
-        },
-        {
-          "checksum": null,
-          "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
-          "is_primary": false,
-          "last_sync": 1768518159.2555842,
-          "node_id": "storage-1",
           "size": 23186,
-          "version": 1
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
+          "is_primary": false,
+          "last_sync": 1768520186.2303498,
+          "node_id": "storage-2",
+          "size": 23186,
+          "version": 2
+        },
+        {
+          "checksum": null,
+          "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
+          "is_primary": false,
+          "last_sync": 1768520186.2303503,
+          "node_id": "storage-4",
+          "size": 23186,
+          "version": 2
         }
       ]
     },
     "storage_nodes": {
       "storage-1": {
         "host": "storage1",
-        "last_heartbeat": 1768518800.8747575,
+        "last_heartbeat": 1768520195.9605258,
         "metadata": {},
         "node_id": "storage-1",
         "node_type": "STORAGE",
@@ -525,7 +502,7 @@
       },
       "storage-2": {
         "host": "storage2",
-        "last_heartbeat": 1768518810.550279,
+        "last_heartbeat": 1768520406.9379003,
         "metadata": {},
         "node_id": "storage-2",
         "node_type": "STORAGE",
@@ -534,7 +511,7 @@
       },
       "storage-3": {
         "host": "storage3",
-        "last_heartbeat": 1768518825.100107,
+        "last_heartbeat": 1768520203.2502878,
         "metadata": {},
         "node_id": "storage-3",
         "node_type": "STORAGE",
@@ -543,16 +520,16 @@
       },
       "storage-4": {
         "host": "storage4",
-        "last_heartbeat": 1768518780.5466478,
+        "last_heartbeat": 1768520401.9338765,
         "metadata": {},
         "node_id": "storage-4",
         "node_type": "STORAGE",
         "port": 5001,
-        "state": "UP"
+        "state": "DOWN"
       }
     }
   },
-  "term": 6,
+  "term": 1,
   "users": {
     "admin": {
       "groups": [
@@ -560,7 +537,7 @@
       ],
       "home_dir": "/admin",
       "is_admin": true,
-      "password_hash": "$2b$12$sMvfQ00yYOFSv5evS2dRK.Oq/nQWXIGICASQGfX5BZPzIkbF2F7se",
+      "password_hash": "$2b$12$GsDmxiT1tmoR8Hjv/qIHCOffvNpxfQMvFw3Mj5wzKEN.U15HRQ4Re",
       "username": "admin"
     }
   }

@@ -1,6 +1,6 @@
 {
   "/": {
-    "file_id": "c194b020-9554-45ce-9e0f-f081bb7974f4",
+    "file_id": "82c3d8d7-2afe-4efe-b09d-708a97507f98",
     "path": "/",
     "name": "/",
     "size": 0,
@@ -8,8 +8,8 @@
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1768517810.5059893,
-    "modified_at": 1768517810.5059898,
+    "created_at": 1768520181.4431908,
+    "modified_at": 1768520181.4431913,
     "is_directory": true,
     "replicas": [],
     "checksum": null
@@ -29,17 +29,52 @@
     "replicas": [],
     "checksum": null
   },
-  "/admin/kako": {
-    "file_id": "579b741e-e29b-4b24-87a0-a49f8c0a02c5",
-    "path": "/admin/kako",
-    "name": "kako",
+  "/admin/distribuido": {
+    "file_id": "ab737972-5adb-43aa-895e-815403749ca4",
+    "path": "/admin/distribuido",
+    "name": "distribuido",
     "size": 0,
     "owner": "admin",
     "group": "users",
     "permissions": 7,
     "version": 1,
-    "created_at": 1768518049.9295053,
-    "modified_at": 1768518049.9295058,
+    "created_at": 1768518244.4508712,
+    "modified_at": 1768518244.4508722,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
+  "/admin/distribuido/compartido.txt": {
+    "file_id": "acc55d20-d8a0-44b1-9c70-d1463f28546c",
+    "path": "/admin/distribuido/compartido.txt",
+    "name": "compartido.txt",
+    "size": 6,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 2,
+    "created_at": 1768518267.530581,
+    "modified_at": 1768518267.574045,
+    "is_directory": false,
+    "replicas": [
+      "storage-2",
+      "storage-4",
+      "storage-1",
+      "storage-3"
+    ],
+    "checksum": null
+  },
+  "/admin/distribuido/kk": {
+    "file_id": "bae2b57c-258a-41ae-8047-6f0fc494cc45",
+    "path": "/admin/distribuido/kk",
+    "name": "kk",
+    "size": 0,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1768518234.493282,
+    "modified_at": 1768518234.4932826,
     "is_directory": true,
     "replicas": [],
     "checksum": null
@@ -78,6 +113,21 @@
     ],
     "checksum": null
   },
+  "/admin/kako": {
+    "file_id": "579b741e-e29b-4b24-87a0-a49f8c0a02c5",
+    "path": "/admin/kako",
+    "name": "kako",
+    "size": 0,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 7,
+    "version": 1,
+    "created_at": 1768518049.9295053,
+    "modified_at": 1768518049.9295058,
+    "is_directory": true,
+    "replicas": [],
+    "checksum": null
+  },
   "/admin/kako/kakin.pdf": {
     "file_id": "ece66655-516e-4a56-ba02-b49c95d812a5",
     "path": "/admin/kako/kakin.pdf",
@@ -91,6 +141,26 @@
     "modified_at": 1768518077.8345697,
     "is_directory": false,
     "replicas": [
+      "storage-3",
+      "storage-2",
+      "storage-4"
+    ],
+    "checksum": null
+  },
+  "/admin/kendry1.pdf": {
+    "file_id": "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea",
+    "path": "/admin/kendry1.pdf",
+    "name": "kendry1.pdf",
+    "size": 23186,
+    "owner": "admin",
+    "group": "users",
+    "permissions": 6,
+    "version": 3,
+    "created_at": 1768518213.0074427,
+    "modified_at": 1768518213.0520282,
+    "is_directory": false,
+    "replicas": [
+      "storage-1",
       "storage-3",
       "storage-2",
       "storage-4"
@@ -112,8 +182,6 @@
     "replicas": [
       "storage-2",
       "storage-4",
-      "storage-1",
-      "storage-3",
       "storage-1",
       "storage-3"
     ],
@@ -148,75 +216,10 @@
     "is_directory": false,
     "replicas": [
       "storage-2",
-      "storage-4"
-    ],
-    "checksum": null
-  },
-  "/admin/distribuido": {
-    "file_id": "ab737972-5adb-43aa-895e-815403749ca4",
-    "path": "/admin/distribuido",
-    "name": "distribuido",
-    "size": 0,
-    "owner": "admin",
-    "group": "users",
-    "permissions": 7,
-    "version": 1,
-    "created_at": 1768518244.4508712,
-    "modified_at": 1768518244.4508722,
-    "is_directory": true,
-    "replicas": [],
-    "checksum": null
-  },
-  "/admin/distribuido/compartido.txt": {
-    "file_id": "acc55d20-d8a0-44b1-9c70-d1463f28546c",
-    "path": "/admin/distribuido/compartido.txt",
-    "name": "compartido.txt",
-    "size": 6,
-    "owner": "admin",
-    "group": "users",
-    "permissions": 6,
-    "version": 2,
-    "created_at": 1768518267.530581,
-    "modified_at": 1768518267.574045,
-    "is_directory": false,
-    "replicas": [
-      "storage-2",
-      "storage-4"
-    ],
-    "checksum": null
-  },
-  "/admin/kendry1.pdf": {
-    "file_id": "9c52a2cd-a706-44eb-9d22-fd5c3e9df0ea",
-    "path": "/admin/kendry1.pdf",
-    "name": "kendry1.pdf",
-    "size": 23186,
-    "owner": "admin",
-    "group": "users",
-    "permissions": 6,
-    "version": 3,
-    "created_at": 1768518213.0074427,
-    "modified_at": 1768518213.0520282,
-    "is_directory": false,
-    "replicas": [
+      "storage-4",
       "storage-1",
-      "storage-3",
-      "storage-4"
+      "storage-3"
     ],
-    "checksum": null
-  },
-  "/admin/distribuido/kk": {
-    "file_id": "bae2b57c-258a-41ae-8047-6f0fc494cc45",
-    "path": "/admin/distribuido/kk",
-    "name": "kk",
-    "size": 0,
-    "owner": "admin",
-    "group": "users",
-    "permissions": 7,
-    "version": 1,
-    "created_at": 1768518234.493282,
-    "modified_at": 1768518234.4932826,
-    "is_directory": true,
-    "replicas": [],
     "checksum": null
   }
 }
