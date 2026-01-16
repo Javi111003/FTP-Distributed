@@ -128,7 +128,55 @@ for name, port in storages:
 
 ---
 
-## 🖥️ **PASO 8: Probar con Consola Personalizada**
+## 🖥️ **PASO 8: Ejecutar Interfaz Streamlit (Alternativa Moderna)**
+
+**Esta es la forma moderna y recomendada de acceder al sistema. Ejecuta ESTA opción O la consola CLI.**
+
+```bash
+# En una nueva terminal, configurar variables de entorno
+cd /home/kendry/Downloads/FTP-Distributed
+export PYTHONPATH="$(pwd):$(pwd)/FTP:$PYTHONPATH"
+export PYTHONIOENCODING=utf-8
+
+# Instalar Streamlit si no lo tienes
+pip install streamlit
+
+# Ejecutar la interfaz web
+streamlit run FTP/Client/ui/streamlit_app.py
+```
+
+**Resultado esperado:**
+```
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.x.x:8501
+```
+
+**Luego:**
+1. Abre tu navegador en `http://localhost:8501`
+2. En la barra lateral, ingresa:
+   - **Host:** `127.0.0.1`
+   - **Puerto:** `2121`
+   - **Usuario:** `admin`
+   - **Contraseña:** `admin123`
+3. Haz clic en "🔗 Conectar" y "🔓 Iniciar Sesión"
+4. ¡Disfruta de la interfaz web completa!
+
+**Características de la UI Streamlit:**
+- ✅ Explorador de archivos visual
+- ✅ Subida y descarga de archivos
+- ✅ Creación y eliminación de directorios
+- ✅ Renombrado de archivos
+- ✅ Log en tiempo real de actividades
+- ✅ Estado del sistema distribuido
+- ✅ Soporte para múltiples formatos de archivo
+
+---
+
+## 🖥️ **PASO 8 (Alternativa): Probar con Consola Personalizada**
+
+**Si prefieres la interfaz de línea de comandos, usa esta opción en lugar de Streamlit.**
 
 ```bash
 # Configurar variables de entorno
@@ -173,7 +221,21 @@ print(f'✅ {len(files)} archivos en el sistema distribuido')
 
 ---
 
-## 🧹 **PASO 10: Limpieza Completa**
+## 🧹 **PASO 11: Detener la Interfaz Streamlit**
+
+**Cuando hayas terminado de usar la UI web:**
+
+```bash
+# En la terminal donde está ejecutándose Streamlit, presiona:
+# Ctrl + C
+
+# O mata el proceso desde otra terminal:
+pkill -f "streamlit run"
+```
+
+---
+
+## 🧹 **PASO 12: Limpieza Completa**
 
 ```bash
 # Detener todos los contenedores
@@ -195,13 +257,37 @@ echo "✅ Limpieza completada - Sistema completamente removido"
 
 ## 📋 **Resumen del Sistema**
 
-| Componente | Cantidad | Puerto | IP en red |
-|------------|----------|--------|-----------|
-| **Router** | 1 | 2121 | 172.20.0.31 |
-| **Metadata** | 3 | 5000 | 172.20.0.11, .2, .13 |
-| **Storage** | 3 | 5001 | 172.20.0.21, .22, .23 |
+| Componente | Cantidad | Puerto | Acceso |
+|------------|----------|--------|--------|
+| **Router** | 1 | 2121 | FTP (127.0.0.1:2121) |
+| **Metadata** | 3 | 5000 | Interno (172.20.0.x) |
+| **Storage** | 3 | 5001 | Interno (172.20.0.x) |
+| **Streamlit UI** | 1 | 8501 | Web (http://localhost:8501) |
 
 **Usuario por defecto:** `admin` / `admin123`
+
+---
+
+## 🌐 **Opciones de Acceso al Sistema**
+
+### Opción 1: Interfaz Web Streamlit ⭐ **RECOMENDADO**
+```bash
+streamlit run FTP/Client/ui/streamlit_app.py
+# → http://localhost:8501
+```
+Perfecta para uso interactivo con interfaz visual moderna.
+
+### Opción 2: Consola CLI
+```bash
+python3 FTP/Client/cli/FTPCLI_distributed.py
+```
+Perfecta para scripting y acceso rápido.
+
+### Opción 3: Cliente FTP Estándar
+```bash
+ftp 127.0.0.1 2121
+```
+Compatible con cualquier cliente FTP estándar (FileZilla, WinSCP, etc.)
 
 ---
 
@@ -215,13 +301,66 @@ echo "✅ Limpieza completada - Sistema completamente removido"
 
 ---
 
-## 🎯 **Resultado Esperado**
+## 🎯 **Flujo Recomendado Completo**
+
+**Para una experiencia completa, sigue este orden en diferentes terminales:**
+
+### Terminal 1: Sistema Distribuido
+```bash
+cd /home/kendry/Downloads/FTP-Distributed
+
+# PASO 1-5: Inicializar infraestructura
+# (ver pasos anteriores - preparación, imágenes, metadata, storage, router)
+```
+
+### Terminal 2: Interfaz Web (RECOMENDADO)
+```bash
+cd /home/kendry/Downloads/FTP-Distributed
+export PYTHONPATH="$(pwd):$(pwd)/FTP:$PYTHONPATH"
+export PYTHONIOENCODING=utf-8
+
+pip install streamlit  # Primera vez solamente
+
+streamlit run FTP/Client/ui/streamlit_app.py
+# Abre: http://localhost:8501
+```
+
+### Terminal 3: Monitoreo (Opcional)
+```bash
+cd /home/kendry/Downloads/FTP-Distributed
+
+# Monitorear logs en tiempo real
+watch -n 2 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+```
+
+---
+
+## 🚨 **Checklist de Ejecución**
+
+- [ ] **Terminal 1:** Sistema distribuido iniciado (pasos 1-5)
+- [ ] **Terminal 1:** Verificar que los 7 contenedores estén corriendo (paso 6)
+- [ ] **Terminal 2:** Instalar Streamlit: `pip install streamlit`
+- [ ] **Terminal 2:** Ejecutar: `streamlit run FTP/Client/ui/streamlit_app.py`
+- [ ] **Navegador:** Abrir http://localhost:8501
+- [ ] **Conectar:** Host `127.0.0.1`, puerto `2121`
+- [ ] **Autenticar:** Usuario `admin`, contraseña `admin123`
+- [ ] ✅ **¡Sistema listo para usar!**
+
+---
+
+## 🎯 **Resultado Esperado (Versión 2.0 con Streamlit)**
 
 Después de completar todos los pasos, tendrás:
 - ✅ Sistema FTP distribuido completamente funcional
 - ✅ 7 contenedores ejecutándose (3 metadata + 3 storage + 1 router)
 - ✅ Autenticación funcionando
 - ✅ Replicación automática de archivos
-- ✅ Consola personalizada lista para usar
+- ✅ **Interfaz Web Moderna (Streamlit)** con:
+  - 📁 Explorador de archivos visual
+  - ⬆️ Subida/descarga de archivos
+  - 📂 Gestión de directorios
+  - ✏️ Renombramiento de archivos
+  - 📊 Monitoreo del sistema
+  - 💾 Soporte para múltiples formatos
 
-**¡Ejecuta estos comandos en orden y tendrás un sistema FTP distribuido funcionando!** 🚀
+**¡Ejecuta estos comandos en orden y tendrás un sistema FTP distribuido con UI moderna funcionando!** 🚀

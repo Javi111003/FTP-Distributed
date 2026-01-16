@@ -302,8 +302,20 @@ class FTPClient:
         """Parses the response code from the server."""
         if not response:
             return 0
-        lines = response.split("\r\n")
-        return int(lines[-1].split()[0]) if lines else 0
+        # Limpiar la respuesta y obtener líneas no vacías
+        lines = [line.strip() for line in response.split("\r\n") if line.strip()]
+        if not lines:
+            # Intentar con solo \n
+            lines = [line.strip() for line in response.split("\n") if line.strip()]
+        if not lines:
+            return 0
+        # Buscar el código en la última línea no vacía
+        last_line = lines[-1]
+        # El código FTP está al inicio de la línea
+        match = re.match(r'^(\d{3})', last_line)
+        if match:
+            return int(match.group(1))
+        return 0
 
     def _parse_pasv_response(self, response: str) -> tuple[str, int]:
         """Parsea respuesta PASV (ej: 227 Entering Passive Mode (192,168,1,2,123,45))."""
@@ -453,8 +465,11 @@ class FTPClient:
         
         # Enviar comando LIST y obtener respuesta inicial
         initial_response = self.send_command("LIST", path)
-        if self._parse_code(initial_response) not in (125, 150):
-            raise FTPClientError(self._parse_code(initial_response), "Error en comando LIST")
+        initial_code = self._parse_code(initial_response)
+        
+        # Aceptar códigos de inicio de transferencia o de éxito
+        if initial_code not in (125, 150, 226):
+            raise FTPClientError(initial_code, "Error en comando LIST")
         
         # Recibir datos del socket de datos
         data = []
@@ -465,14 +480,21 @@ class FTPClient:
                     break
                 data.append(chunk.decode(errors='ignore'))
         except Exception as e:
-            print(f"Error recibiendo datos: {e}")
+            self.logger.debug(f"Error recibiendo datos LIST: {e}")
         finally:
             self._close_data_connection()
-            
-        # Obtener respuesta final del servidor
-        final_response = self._get_response()
-        if self._parse_code(final_response) != FTPResponseCode.FILE_ACTION_COMPLETED:
-            raise FTPClientError(self._parse_code(final_response), "Error completando LIST")
+        
+        # Si ya recibimos 226 en la respuesta inicial, no esperar otra
+        if initial_code != 226:
+            # Obtener respuesta final del servidor
+            try:
+                final_response = self._get_response()
+                final_code = self._parse_code(final_response)
+                # Aceptar 226 (éxito) o ignorar si ya terminó
+                if final_code not in (226, 0):
+                    self.logger.warning(f"LIST respuesta inesperada: {final_response}")
+            except Exception as e:
+                self.logger.debug(f"Error obteniendo respuesta final LIST: {e}")
         
         # Procesar los datos recibidos
         received_data = "".join(data)
