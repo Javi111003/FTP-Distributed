@@ -160,7 +160,7 @@ class SplitBrainReconciliation:
             self._force_leader_election_result(canonical_leader, peer_states)
             
             logger.info("📦 Step 4: Synchronizing state...")
-            
+
             # Paso 4: Sincronizar estado completo
             if canonical_leader == self.node_id:
                 logger.info("📤 I am the canonical leader - merging states from peers...")
@@ -170,14 +170,14 @@ class SplitBrainReconciliation:
                 logger.info("💾 Persisting merged namespace to disk...")
                 self.metadata_server.namespace._persist_to_disk()
                 logger.info("✅ Namespace persisted - snapshot will include all merged files")
-                # Replicar mi estado a todos los followers
+                # Replicar mi estado a todos los followers (SIN delay aún)
                 self._replicate_state_to_followers(peer_nodes)
             else:
                 logger.info(f"📥 I am NOT the leader - synchronizing from {canonical_leader}...")
                 # No soy líder, sincronizar desde el líder
                 self._synchronize_with_leader(canonical_leader, peer_states)
-            
-            # Verificar estado final
+
+            # Verificar estado final ANTES del delay
             if canonical_leader == self.node_id:
                 final_files = len(self.metadata_server.namespace._namespace)
                 logger.warning(
@@ -185,7 +185,7 @@ class SplitBrainReconciliation:
                     f"    Final leader: {canonical_leader}\n"
                     f"    My role: LEADER\n"
                     f"    Final namespace: {final_files} files\n"
-                    f"    State replicated to all followers"
+                    f"    All nodes have completed their reconciliation tasks"
                 )
             else:
                 logger.warning(
@@ -194,6 +194,16 @@ class SplitBrainReconciliation:
                     f"    My role: FOLLOWER\n"
                     f"    Synchronized with leader successfully"
                 )
+
+            # ⏳ AL FINAL DE TODA LA RECONCILIACIÓN: ESPERAR 30 SEGUNDOS PARA ASEGURAR
+            # QUE TODOS LOS NODOS (LÍDERES Y FOLLOWERS) HAN TERMINADO SUS HILOS DE RECONCILIACIÓN
+            if canonical_leader == self.node_id:
+                logger.warning("⏳ WAITING 30 SECONDS AT THE END OF RECONCILIATION TO ENSURE ALL NODES HAVE COMPLETED THEIR THREADS...")
+                time.sleep(30)
+                logger.warning("✅ ALL RECONCILIATION THREADS SHOULD BE COMPLETE - STARTING FINAL NAMESPACE REPLICATION")
+
+                # Replicar mi estado a todos los followers con reintentos (al final de todo)
+                self._replicate_state_to_followers_with_retries(peer_nodes, max_retries=3)
             
         except Exception as e:
             logger.error(f"❌❌❌ ERROR during reconciliation: {e}", exc_info=True)
@@ -595,6 +605,80 @@ class SplitBrainReconciliation:
                 logger.error(f"❌ Error sending to {peer.node_id}: {e}")
 
         logger.info(f"📊 Replication complete: {successful_sends}/{len(peer_nodes)} followers received unified namespace")
+
+    def _replicate_state_to_followers_with_retries(self, peer_nodes: List[NodeInfo], max_retries: int = 3):
+        """Replica el namespace del líder a todos los followers con lógica de reintentos."""
+        logger.info(f"🔄 STARTING NAMESPACE REPLICATION WITH RETRIES (max {max_retries} attempts)")
+
+        attempt = 1
+        while attempt <= max_retries:
+            logger.warning(f"🔄 REPLICATION ATTEMPT {attempt}/{max_retries}")
+
+            try:
+                # Intentar replicar
+                successful_sends = self._attempt_single_replication(peer_nodes)
+
+                # Si al menos un follower recibió la replicación, considerarlo exitoso
+                if successful_sends > 0:
+                    logger.warning(f"✅ REPLICATION SUCCESSFUL on attempt {attempt}: {successful_sends}/{len(peer_nodes)} followers synced")
+                    return True
+                else:
+                    logger.warning(f"❌ REPLICATION FAILED on attempt {attempt}: no followers received data")
+
+            except Exception as e:
+                logger.error(f"❌ REPLICATION ERROR on attempt {attempt}: {e}")
+
+            # Si no es el último intento, esperar antes del siguiente
+            if attempt < max_retries:
+                wait_time = 5 * attempt  # Esperar 5s en intento 1, 10s en intento 2, etc.
+                logger.info(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+
+            attempt += 1
+
+        # Si llegamos aquí, todos los intentos fallaron
+        logger.error(f"❌❌❌ ALL {max_retries} REPLICATION ATTEMPTS FAILED - giving up")
+        return False
+
+    def _attempt_single_replication(self, peer_nodes: List[NodeInfo]) -> int:
+        """Intenta una sola replicación y retorna el número de envíos exitosos."""
+        # 🔄 ESPERAR A QUE EL LÍDER TENGA TODO SU ESTADO COMPLETO
+        self._wait_for_complete_state()
+
+        # ✅ Verificar integridad del estado antes de enviar
+        if not self._verify_leader_state_integrity():
+            logger.error("❌ Leader state is not consistent, aborting replication")
+            return 0
+
+        # Crear snapshot solo cuando TODO esté listo
+        snapshot = self.metadata_server._create_snapshot()
+
+        logger.info("✅ Leader state verified as complete, sending to followers")
+
+        successful_sends = 0
+
+        for peer in peer_nodes:
+            try:
+                msg = RPCMessage(
+                    MessageType.REPL_SNAPSHOT,
+                    {
+                        'snapshot': snapshot,
+                        'from_leader': True,
+                        'force_install': True
+                    }
+                )
+                response = self._rpc_client.call(peer.host, peer.port, msg)
+
+                if response and response.payload.get('status') == DistributedResponseCode.SUCCESS.value:
+                    logger.info(f"✅ Unified namespace sent to {peer.node_id}")
+                    successful_sends += 1
+                else:
+                    logger.warning(f"❌ Failed to send unified namespace to {peer.node_id}")
+
+            except Exception as e:
+                logger.error(f"❌ Error sending to {peer.node_id}: {e}")
+
+        return successful_sends
 
     def _wait_for_complete_state(self):
         """Espera a que el estado del líder esté completamente actualizado"""

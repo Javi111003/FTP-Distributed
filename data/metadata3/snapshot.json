@@ -1,0 +1,258 @@
+{
+  "checksum": "143d32a3558f37f016891110ea500e75",
+  "commit_index": 2,
+  "locks": {
+    "read_locks": {},
+    "write_locks": {}
+  },
+  "namespace": {
+    "/": {
+      "checksum": null,
+      "created_at": 1768526061.7644014,
+      "file_id": "785b89e7-5bdf-4f6c-8804-c86d5e57227b",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1768526061.7644017,
+      "name": "/",
+      "owner": "root",
+      "path": "/",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin": {
+      "checksum": null,
+      "created_at": 1768526144.3000581,
+      "file_id": "0e8c0590-128d-4ea2-96f1-49c8e0decbc5",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1768526144.3000586,
+      "name": "admin",
+      "owner": "admin",
+      "path": "/admin",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin/ftp.pdf": {
+      "checksum": null,
+      "created_at": 1768526162.042685,
+      "file_id": "b3d724da-b937-4306-ac71-71485a9b7839",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1768526162.159192,
+      "name": "ftp.pdf",
+      "owner": "admin",
+      "path": "/admin/ftp.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-1",
+        "storage-3"
+      ],
+      "size": 23186,
+      "version": 2
+    },
+    "/admin/jj": {
+      "checksum": null,
+      "created_at": 1768526322.6930888,
+      "file_id": "178afff6-ff58-46f0-a486-35e6dcefd417",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1768526322.6930895,
+      "name": "jj",
+      "owner": "admin",
+      "path": "/admin/jj",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin/jj/ll.pdf": {
+      "checksum": null,
+      "created_at": 1768526332.3740494,
+      "file_id": "d3f19202-ef5f-462e-afad-9dd4a99ec68a",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1768526332.4211001,
+      "name": "ll.pdf",
+      "owner": "admin",
+      "path": "/admin/jj/ll.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-2",
+        "storage-4",
+        "storage-3"
+      ],
+      "size": 23186,
+      "version": 2
+    },
+    "/admin/kk": {
+      "checksum": null,
+      "created_at": 1768526147.5769618,
+      "file_id": "bf8091fa-92d4-4a58-a9b0-3dc071b27f89",
+      "group": "users",
+      "is_directory": true,
+      "modified_at": 1768526147.5769622,
+      "name": "kk",
+      "owner": "admin",
+      "path": "/admin/kk",
+      "permissions": 7,
+      "replicas": [],
+      "size": 0,
+      "version": 1
+    },
+    "/admin/lalala.pdf": {
+      "checksum": null,
+      "created_at": 1768526318.543841,
+      "file_id": "3f340836-6b55-448d-8fe0-076690f0d7ee",
+      "group": "users",
+      "is_directory": false,
+      "modified_at": 1768526318.585058,
+      "name": "lalala.pdf",
+      "owner": "admin",
+      "path": "/admin/lalala.pdf",
+      "permissions": 6,
+      "replicas": [
+        "storage-2",
+        "storage-4",
+        "storage-3"
+      ],
+      "size": 23186,
+      "version": 2
+    }
+  },
+  "replicas": {
+    "replicas": {
+      "3f340836-6b55-448d-8fe0-076690f0d7ee": [
+        {
+          "checksum": null,
+          "file_id": "3f340836-6b55-448d-8fe0-076690f0d7ee",
+          "is_primary": true,
+          "last_sync": 1768526318.544635,
+          "node_id": "storage-2",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "3f340836-6b55-448d-8fe0-076690f0d7ee",
+          "is_primary": false,
+          "last_sync": 1768526318.5446417,
+          "node_id": "storage-4",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "3f340836-6b55-448d-8fe0-076690f0d7ee",
+          "is_primary": false,
+          "last_sync": 1768526318.5446439,
+          "node_id": "storage-3",
+          "size": 0,
+          "version": 1
+        }
+      ],
+      "b3d724da-b937-4306-ac71-71485a9b7839": [
+        {
+          "checksum": null,
+          "file_id": "b3d724da-b937-4306-ac71-71485a9b7839",
+          "is_primary": true,
+          "last_sync": 1768526162.0438075,
+          "node_id": "storage-1",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "b3d724da-b937-4306-ac71-71485a9b7839",
+          "is_primary": false,
+          "last_sync": 1768526162.0438128,
+          "node_id": "storage-3",
+          "size": 0,
+          "version": 1
+        }
+      ],
+      "d3f19202-ef5f-462e-afad-9dd4a99ec68a": [
+        {
+          "checksum": null,
+          "file_id": "d3f19202-ef5f-462e-afad-9dd4a99ec68a",
+          "is_primary": true,
+          "last_sync": 1768526332.3749845,
+          "node_id": "storage-2",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "d3f19202-ef5f-462e-afad-9dd4a99ec68a",
+          "is_primary": false,
+          "last_sync": 1768526332.3749897,
+          "node_id": "storage-4",
+          "size": 0,
+          "version": 1
+        },
+        {
+          "checksum": null,
+          "file_id": "d3f19202-ef5f-462e-afad-9dd4a99ec68a",
+          "is_primary": false,
+          "last_sync": 1768526332.374992,
+          "node_id": "storage-3",
+          "size": 0,
+          "version": 1
+        }
+      ]
+    },
+    "storage_nodes": {
+      "storage-1": {
+        "host": "storage1",
+        "last_heartbeat": 1768526270.6317225,
+        "metadata": {},
+        "node_id": "storage-1",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "DOWN"
+      },
+      "storage-2": {
+        "host": "storage2",
+        "last_heartbeat": 1768526257.845056,
+        "metadata": {},
+        "node_id": "storage-2",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      },
+      "storage-3": {
+        "host": "storage3",
+        "last_heartbeat": 1768526210.587695,
+        "metadata": {},
+        "node_id": "storage-3",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      },
+      "storage-4": {
+        "host": "storage4",
+        "last_heartbeat": 1768526287.1682122,
+        "metadata": {},
+        "node_id": "storage-4",
+        "node_type": "STORAGE",
+        "port": 5001,
+        "state": "UP"
+      }
+    }
+  },
+  "term": 2,
+  "users": {
+    "admin": {
+      "groups": [
+        "users"
+      ],
+      "home_dir": "/admin",
+      "is_admin": true,
+      "password_hash": "$2b$12$x5GtvTSVA1avDbYUbkVuw.BjITrN0yoVZBHwCpTvDeMBZfVjCSOWm",
+      "username": "admin"
+    }
+  }
+}
