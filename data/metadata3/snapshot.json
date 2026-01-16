@@ -1,5 +1,5 @@
 {
-  "checksum": "3485c58d4b4b9c8d2444b50345340fb9",
+  "checksum": "c14f516101cdfc89dd1d937bb5b202d5",
   "commit_index": 15,
   "locks": {
     "read_locks": {},
@@ -392,7 +392,7 @@
       }
     }
   },
-  "term": 1,
+  "term": 2,
   "users": {
     "admin": {
       "groups": [

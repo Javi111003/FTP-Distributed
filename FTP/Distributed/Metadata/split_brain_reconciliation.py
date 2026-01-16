@@ -105,33 +105,33 @@ class SplitBrainReconciliation:
             )
             return False
     
-    def initiate_reconciliation(self, peer_nodes: List[NodeInfo]):
+    def initiate_reconciliation(self, peer_nodes: List[NodeInfo], on_complete_callback=None):
         """Inicia el proceso de reconciliación con los peers."""
         with self._lock:
             if self._reconciliation_in_progress:
                 logger.info("⏳ Reconciliation already in progress, skipping")
                 return
-            
+
             time_since_last = time.time() - self._last_reconciliation
             if time_since_last < self._reconciliation_cooldown:
                 logger.info(f"⏳ Reconciliation cooldown: {self._reconciliation_cooldown - time_since_last:.1f}s remaining")
                 return
-            
+
             self._reconciliation_in_progress = True
             self._last_reconciliation = time.time()
-        
+
         logger.warning(
             f"🔄🔄🔄 STARTING SPLIT-BRAIN RECONCILIATION 🔄🔄🔄\n"
             f"    Peers to reconcile: {[p.node_id for p in peer_nodes]}"
         )
-        
+
         threading.Thread(
             target=self._reconciliation_worker,
-            args=(peer_nodes,),
+            args=(peer_nodes, on_complete_callback),
             daemon=True
         ).start()
     
-    def _reconciliation_worker(self, peer_nodes: List[NodeInfo]):
+    def _reconciliation_worker(self, peer_nodes: List[NodeInfo], on_complete_callback=None):
         """Worker thread que ejecuta la reconciliación"""
         try:
             logger.info("📊 Step 1: Collecting state from all peers...")
@@ -194,7 +194,15 @@ class SplitBrainReconciliation:
                     f"    My role: FOLLOWER\n"
                     f"    Synchronized with leader successfully"
                 )
-            
+
+            # Ejecutar callback cuando la reconciliación termine exitosamente
+            if on_complete_callback and callable(on_complete_callback):
+                try:
+                    logger.info("🔄 Executing post-reconciliation callback...")
+                    on_complete_callback()
+                except Exception as e:
+                    logger.error(f"Error executing post-reconciliation callback: {e}")
+
         except Exception as e:
             logger.error(f"❌❌❌ ERROR during reconciliation: {e}", exc_info=True)
         finally:

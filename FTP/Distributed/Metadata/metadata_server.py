@@ -348,8 +348,7 @@ class MetadataServer:
         )
         self._heartbeat_thread.start()
 
-        # Iniciar monitor de consistencia automática
-        self._start_consistency_monitor()
+        # Nota: El monitor de consistencia se inicia DESPUÉS de la reconciliación de split-brain
 
         logger.info(f"Metadata server started: {self.node_id} on {self.host}:{self.port}")
         
@@ -369,17 +368,27 @@ class MetadataServer:
         self.lock_manager.stop()
         logger.info("Metadata server stopped")
 
-    def _start_consistency_monitor(self):
-        """Inicia el thread que monitorea consistencia del cluster cada 15 segundos"""
+    def start_consistency_monitor_after_reconciliation(self):
+        """Inicia el monitor de consistencia DESPUÉS de la reconciliación de split-brain"""
         def consistency_worker():
-            logger.info("🔍 CONSISTENCY MONITOR STARTED - Checking every 15 seconds")
-            while self._running:
-                try:
-                    time.sleep(self._consistency_check_interval)
+            try:
+                # Esperar 10 segundos después de la reconciliación para estabilidad
+                logger.info("⏳ Waiting 10 seconds after split-brain reconciliation...")
+                time.sleep(10)
+
+                # Ejecutar verificación de consistencia 3 veces
+                for check_round in range(1, 4):
+                    logger.info(f"🔍 POST-RECONCILIATION CONSISTENCY CHECK #{check_round}/3")
+
                     self._check_cluster_consistency()
-                except Exception as e:
-                    logger.error(f"Consistency monitor error: {e}")
-                    time.sleep(5)  # Esperar antes de reintentar
+
+                    if check_round < 3:
+                        time.sleep(self._consistency_check_interval)
+
+                logger.info("✅ Post-reconciliation consistency monitoring completed")
+
+            except Exception as e:
+                logger.error(f"Post-reconciliation consistency monitor error: {e}")
 
         self._consistency_thread = threading.Thread(target=consistency_worker, daemon=True)
         self._consistency_thread.start()
@@ -388,12 +397,6 @@ class MetadataServer:
         """Verifica que todos los followers tengan la misma info que el líder"""
         if not self.leader_election.is_leader():
             return  # Solo el líder hace las verificaciones
-
-        current_time = time.time()
-        if current_time - self._last_consistency_check < self._consistency_check_interval:
-            return  # Aún no es tiempo
-
-        self._last_consistency_check = current_time
 
         # Obtener peers activos
         active_peers = []
@@ -579,7 +582,10 @@ class MetadataServer:
                     # Obtener todos los peers para reconciliación
                     with self.leader_election._lock:
                         all_peers = list(self.leader_election._peers.values())
-                    self.split_brain_reconciliation.initiate_reconciliation(all_peers)
+                    self.split_brain_reconciliation.initiate_reconciliation(
+                        all_peers,
+                        on_complete_callback=self.start_consistency_monitor_after_reconciliation
+                    )
                 else:
                     logger.info(f"✅ No split-brain with reconnected peer {peer.node_id}")
 
